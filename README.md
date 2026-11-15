@@ -1,11 +1,11 @@
-# LETA — Backend (API)
+# LETO — Backend (API)
 
-API NestJS + PostgreSQL de la plateforme de livraison LETA (Abidjan, Côte d'Ivoire).
+API NestJS + PostgreSQL de la plateforme de livraison LETO (Abidjan, Côte d'Ivoire).
 
 - **Clients** (particuliers, boutiques) créent des demandes de livraison.
 - **Livreurs** des entreprises de livraison acceptent et effectuent les courses.
 - **Entreprises** gèrent leurs livreurs et suivent leurs courses.
-- **Admin** gère les entreprises partenaires.
+- **Super Admin (SA)** gère les entreprises partenaires.
 
 ## Démarrer
 
@@ -16,7 +16,7 @@ npm install
 npm run start:dev           # http://localhost:3000
 ```
 
-Un compte admin est créé au premier démarrage (`ADMIN_PHONE` / `ADMIN_PASSWORD` dans `.env`).
+Un compte Super Admin (SA) est créé au premier démarrage (`SUPER_ADMIN_PHONE` / `SUPER_ADMIN_PASSWORD` dans `.env`).
 
 ## Parcours d'une livraison
 
@@ -44,8 +44,24 @@ Grille par commune du Grand Abidjan, dans `src/pricing/pricing.ts` : 1 000 FCFA 
 | GET | `/deliveries/company` | COMPANY |
 | GET/POST | `/companies/me/drivers` | COMPANY |
 | PATCH | `/companies/me/drivers/:id/active?value=` | COMPANY |
-| GET | `/deliveries` | ADMIN |
-| GET/POST | `/companies` | ADMIN |
-| PATCH | `/companies/:id/active?value=` | ADMIN |
+| GET | `/deliveries` | SUPER_ADMIN |
+| GET/POST | `/companies` | SUPER_ADMIN |
+| PATCH | `/companies/:id/active?value=` | SUPER_ADMIN |
+| GET | `/users?role=` | SUPER_ADMIN |
+| PATCH | `/users/:id/active?value=` | SUPER_ADMIN |
+
+## Temps réel (Socket.IO)
+
+Connexion : `io("http://localhost:3000", { auth: { token } })`.
+
+| Sens | Événement | Contenu |
+|---|---|---|
+| app → serveur | `driver:location` | `{ lat, lng }` (livreur, toutes les ~5 s) |
+| app → serveur | `delivery:watch` / `delivery:unwatch` | id de la course à suivre |
+| serveur → app | `driver:location` | `{ deliveryId?, driverId, lat, lng, at }` |
+| serveur → app | `delivery:updated` | `{ id, status }` → recharger la course |
+| serveur → livreurs | `deliveries:changed` | recharger les courses disponibles |
+
+Le gérant d'entreprise reçoit les positions de ses livreurs, le SA celles de tous les livreurs.
 
 > `synchronize: true` (TypeORM) crée les tables automatiquement en développement. À remplacer par des migrations avant la production.

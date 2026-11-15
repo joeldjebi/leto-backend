@@ -11,19 +11,19 @@ export class CompaniesController {
 
   // ----- Admin plateforme -----
   @Get()
-  @Roles(Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN)
   findAll() {
     return this.service.findAll();
   }
 
   @Post()
-  @Roles(Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN)
   create(@Body() dto: CreateCompanyDto) {
     return this.service.create(dto);
   }
 
   @Patch(':id/active')
-  @Roles(Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN)
   setActive(@Param('id') id: string, @Query('value', ParseBoolPipe) value: boolean) {
     return this.service.setActive(id, value);
   }

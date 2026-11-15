@@ -1,16 +1,16 @@
-name: leta
+name: leto
 
 services:
   db:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: leta
-      POSTGRES_PASSWORD: leta
-      POSTGRES_DB: leta
+      POSTGRES_USER: leto
+      POSTGRES_PASSWORD: leto
+      POSTGRES_DB: leto
     ports:
       - "5440:5432"
     volumes:
-      - leta_db:/var/lib/postgresql/data
+      - leto_db:/var/lib/postgresql/data
 
 volumes:
-  leta_db:
+  leto_db:

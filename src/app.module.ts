@@ -13,7 +13,9 @@ import { DeliveriesController } from './deliveries/deliveries.controller';
 import { DeliveriesService } from './deliveries/deliveries.service';
 import { Delivery } from './deliveries/delivery.entity';
 import { PricingController } from './pricing/pricing.controller';
+import { TrackingGateway } from './tracking/tracking.gateway';
 import { User } from './users/user.entity';
+import { UsersController } from './users/users.controller';
 
 @Module({
   imports: [
@@ -36,11 +38,12 @@ import { User } from './users/user.entity';
       signOptions: { expiresIn: '30d' },
     }),
   ],
-  controllers: [AuthController, CompaniesController, DeliveriesController, PricingController],
+  controllers: [AuthController, CompaniesController, DeliveriesController, PricingController, UsersController],
   providers: [
     AuthService,
     CompaniesService,
     DeliveriesService,
+    TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],
 })

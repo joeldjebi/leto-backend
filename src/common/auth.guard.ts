@@ -7,13 +7,19 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
-import { Role } from '../users/user.entity';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { Role, User } from '../users/user.entity';
 import { IS_PUBLIC, ROLES } from './decorators';
 
 /** Guard global : vérifie le token JWT puis le rôle si @Roles() est présent. */
 @Injectable()
 export class AuthGuard implements CanActivate {
-  constructor(private jwt: JwtService, private reflector: Reflector) {}
+  constructor(
+    private jwt: JwtService,
+    private reflector: Reflector,
+    @InjectRepository(User) private users: Repository<User>,
+  ) {}
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const targets = [ctx.getHandler(), ctx.getClass()];
@@ -26,6 +32,12 @@ export class AuthGuard implements CanActivate {
       req.user = await this.jwt.verifyAsync(token);
     } catch {
       throw new UnauthorizedException();
+    }
+
+    // Compte ou entreprise désactivé par le SA / le gérant → accès coupé immédiatement
+    const user = await this.users.findOne({ where: { id: req.user.sub }, relations: { company: true } });
+    if (!user || !user.active || (user.company && !user.company.active)) {
+      throw new UnauthorizedException('Compte désactivé');
     }
 
     const roles = this.reflector.getAllAndOverride<Role[]>(ROLES, targets);

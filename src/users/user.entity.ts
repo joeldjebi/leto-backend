@@ -5,7 +5,7 @@ export enum Role {
   CLIENT = 'CLIENT', // particulier ou boutique qui demande une livraison
   DRIVER = 'DRIVER', // livreur rattaché à une entreprise
   COMPANY = 'COMPANY', // gérant d'une entreprise de livraison
-  ADMIN = 'ADMIN', // administrateur de la plateforme
+  SUPER_ADMIN = 'SUPER_ADMIN', // super admin (SA) de la plateforme LETO
 }
 
 @Entity('users')
@@ -33,6 +33,14 @@ export class User {
 
   @Column({ default: true })
   active: boolean;
+
+  /** Dernière position GPS connue (livreurs) — mise à jour en temps réel */
+  @Column({ type: 'double precision', nullable: true })
+  lastLat: number | null;
+  @Column({ type: 'double precision', nullable: true })
+  lastLng: number | null;
+  @Column({ type: 'timestamptz', nullable: true })
+  lastLocationAt: Date | null;
 
   @CreateDateColumn()
   createdAt: Date;

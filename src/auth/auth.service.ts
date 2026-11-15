@@ -21,16 +21,16 @@ export class AuthService implements OnApplicationBootstrap {
 
   /** Crée le compte super-admin au premier démarrage */
   async onApplicationBootstrap() {
-    const { ADMIN_PHONE, ADMIN_PASSWORD } = process.env;
-    if (!ADMIN_PHONE || !ADMIN_PASSWORD) return;
-    if (await this.users.existsBy({ role: Role.ADMIN })) return;
+    const { SUPER_ADMIN_PHONE, SUPER_ADMIN_PASSWORD } = process.env;
+    if (!SUPER_ADMIN_PHONE || !SUPER_ADMIN_PASSWORD) return;
+    if (await this.users.existsBy({ role: Role.SUPER_ADMIN })) return;
     await this.users.save({
-      name: 'Admin LETA',
-      phone: ADMIN_PHONE,
-      passwordHash: await bcrypt.hash(ADMIN_PASSWORD, 10),
-      role: Role.ADMIN,
+      name: 'Super Admin LETO',
+      phone: SUPER_ADMIN_PHONE,
+      passwordHash: await bcrypt.hash(SUPER_ADMIN_PASSWORD, 10),
+      role: Role.SUPER_ADMIN,
     });
-    this.logger.log(`Compte admin créé : ${ADMIN_PHONE}`);
+    this.logger.log(`Compte super admin créé : ${SUPER_ADMIN_PHONE}`);
   }
 
   /** Inscription publique : uniquement des clients (particuliers / boutiques) */

@@ -76,7 +76,7 @@ export class DeliveriesController {
   }
 
   @Get()
-  @Roles(Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN)
   all() {
     return this.service.all();
   }

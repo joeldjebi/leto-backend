@@ -9,12 +9,22 @@ import { randomInt } from 'crypto';
 import { Repository } from 'typeorm';
 import { AuthUser } from '../common/decorators';
 import { computePrice } from '../pricing/pricing';
+import { TrackingGateway } from '../tracking/tracking.gateway';
 import { CreateDeliveryDto } from './deliveries.dto';
 import { Delivery, DeliveryStatus } from './delivery.entity';
 
 @Injectable()
 export class DeliveriesService {
-  constructor(@InjectRepository(Delivery) private repo: Repository<Delivery>) {}
+  constructor(
+    @InjectRepository(Delivery) private repo: Repository<Delivery>,
+    private tracking: TrackingGateway,
+  ) {}
+
+  /** Notifie en temps réel puis renvoie la course */
+  private notify<T extends Delivery>(d: T): T {
+    this.tracking.deliveryChanged(d);
+    return d;
+  }
 
   /** Requête de base avec client, livreur et entreprise chargés */
   private query(withCode = false) {
@@ -38,7 +48,7 @@ export class DeliveriesService {
         confirmationCode: randomInt(0, 10000).toString().padStart(4, '0'),
       }),
     );
-    return this.query(true).where('d.id = :id', { id: delivery.id }).getOne();
+    return this.notify(await this.query(true).where('d.id = :id', { id: delivery.id }).getOne());
   }
 
   /** Le client voit ses courses AVEC le code (à transmettre au destinataire) */
@@ -63,7 +73,7 @@ export class DeliveriesService {
     if (!res.affected) {
       throw new BadRequestException('Seule une course en attente peut être annulée');
     }
-    return this.query(true).where('d.id = :id', { id }).getOne();
+    return this.notify(await this.query(true).where('d.id = :id', { id }).getOne());
   }
 
   // ---------- Livreur ----------
@@ -97,7 +107,7 @@ export class DeliveriesService {
       .where('id = :id AND status = :s', { id, s: DeliveryStatus.PENDING })
       .execute();
     if (!res.affected) throw new ConflictException('Course déjà prise ou indisponible');
-    return this.findOne(id);
+    return this.notify(await this.findOne(id));
   }
 
   async pickup(driverId: string, id: string) {
@@ -106,7 +116,7 @@ export class DeliveriesService {
       { status: DeliveryStatus.PICKED_UP, pickedUpAt: new Date() },
     );
     if (!res.affected) throw new BadRequestException('Action impossible pour cette course');
-    return this.findOne(id);
+    return this.notify(await this.findOne(id));
   }
 
   /** Le livreur saisit le code donné par le destinataire pour clôturer */
@@ -118,7 +128,7 @@ export class DeliveriesService {
     }
     if (d.confirmationCode !== code) throw new BadRequestException('Code incorrect');
     await this.repo.update(id, { status: DeliveryStatus.DELIVERED, deliveredAt: new Date() });
-    return this.findOne(id);
+    return this.notify(await this.findOne(id));
   }
 
   // ---------- Entreprise / Admin ----------
