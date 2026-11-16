@@ -142,6 +142,15 @@ Ensuite : créer les entreprises de livraison (Entreprises → Nouvelle entrepri
 
 ---
 
+## Changer le numéro ou le mot de passe du Super Admin
+
+Modifier `SUPER_ADMIN_PHONE` / `SUPER_ADMIN_PASSWORD` dans `.env` (entre guillemets si le mot de passe contient `#` ou des espaces), puis :
+
+```bash
+pm2 restart leto-api --update-env
+pm2 logs leto-api --lines 50 --nostream | grep "Super Admin"   # « mis à jour depuis le .env »
+```
+
 ## Mises à jour
 
 ```bash

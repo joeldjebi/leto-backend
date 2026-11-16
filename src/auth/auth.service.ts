@@ -20,17 +20,50 @@ export class AuthService implements OnApplicationBootstrap {
   constructor(@InjectRepository(User) private users: Repository<User>, private jwt: JwtService) {}
 
   /** Crée le compte super-admin au premier démarrage */
+  /**
+   * Compte Super Admin piloté par le .env (SUPER_ADMIN_PHONE / SUPER_ADMIN_PASSWORD) :
+   * créé au premier démarrage, puis mis à jour à chaque démarrage si le .env a changé.
+   */
   async onApplicationBootstrap() {
-    const { SUPER_ADMIN_PHONE, SUPER_ADMIN_PASSWORD } = process.env;
-    if (!SUPER_ADMIN_PHONE || !SUPER_ADMIN_PASSWORD) return;
-    if (await this.users.existsBy({ role: Role.SUPER_ADMIN })) return;
-    await this.users.save({
-      name: 'Super Admin LETO',
-      phone: SUPER_ADMIN_PHONE,
-      passwordHash: await bcrypt.hash(SUPER_ADMIN_PASSWORD, 10),
-      role: Role.SUPER_ADMIN,
-    });
-    this.logger.log(`Compte super admin créé : ${SUPER_ADMIN_PHONE}`);
+    const { SUPER_ADMIN_PHONE: phone, SUPER_ADMIN_PASSWORD: password } = process.env;
+    if (!phone || !password) return;
+    if (password.length < 8) this.logger.warn('SUPER_ADMIN_PASSWORD est court : 8 caractères minimum recommandés');
+
+    const sa = await this.users
+      .createQueryBuilder('u')
+      .addSelect('u.passwordHash')
+      .where('u.role = :role', { role: Role.SUPER_ADMIN })
+      .orderBy('u.createdAt', 'ASC')
+      .getOne();
+
+    if (!sa) {
+      await this.users.save({
+        name: 'Super Admin LETO',
+        phone,
+        passwordHash: await bcrypt.hash(password, 10),
+        role: Role.SUPER_ADMIN,
+      });
+      this.logger.log(`Compte Super Admin créé : ${phone}`);
+      return;
+    }
+
+    const changes: Partial<User> = {};
+    if (sa.phone !== phone) {
+      const taken = await this.users.findOneBy({ phone });
+      if (taken && taken.id !== sa.id) {
+        this.logger.error(`SUPER_ADMIN_PHONE ${phone} est déjà utilisé par un autre compte : numéro non modifié`);
+      } else {
+        changes.phone = phone;
+      }
+    }
+    if (!(await bcrypt.compare(password, sa.passwordHash))) changes.passwordHash = await bcrypt.hash(password, 10);
+    if (!sa.active) changes.active = true;
+
+    if (Object.keys(changes).length) {
+      await this.users.update(sa.id, changes);
+      const what = [changes.phone && 'numéro', changes.passwordHash && 'mot de passe', changes.active && 'réactivation'].filter(Boolean);
+      this.logger.log(`Compte Super Admin mis à jour depuis le .env (${what.join(', ')})`);
+    }
   }
 
   /** Inscription publique : uniquement des clients (particuliers / boutiques) */
