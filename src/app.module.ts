@@ -10,6 +10,9 @@ import { StatsService } from './admin/stats.service';
 import { BillingController } from './billing/billing.controller';
 import { CreditTransaction, Payment } from './billing/billing.entities';
 import { BillingService } from './billing/billing.service';
+import { Remittance } from './remittances/remittance.entity';
+import { RemittancesController } from './remittances/remittances.controller';
+import { RemittancesService } from './remittances/remittances.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { AuthGuard } from './common/auth.guard';
@@ -45,12 +48,12 @@ import { UsersController } from './users/users.controller';
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction],
+      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance],
       // Crée / met à jour les tables au démarrage (DB_SYNC=false pour désactiver).
       // À remplacer par des migrations TypeORM quand le schéma sera stabilisé.
       synchronize: process.env.DB_SYNC !== 'false',
     }),
-    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction]),
+    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
@@ -67,6 +70,7 @@ import { UsersController } from './users/users.controller';
     GeoController,
     OffersController,
     PricingController,
+    RemittancesController,
     UploadsController,
     UsersController,
   ],
@@ -80,6 +84,7 @@ import { UsersController } from './users/users.controller';
     OffersService,
     StorageService,
     SettingsService,
+    RemittancesService,
     StatsService,
     TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },

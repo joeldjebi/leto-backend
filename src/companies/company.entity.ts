@@ -28,6 +28,10 @@ export class Company {
   @Column({ type: 'double precision', nullable: true })
   commissionValue: number | null;
 
+  /** Part du prix de chaque course gardée par le livreur (%) ; 0 = il verse tout (salarié) */
+  @Column({ type: 'double precision', default: 0 })
+  driverSharePercent: number;
+
   @CreateDateColumn()
   createdAt: Date;
 }
