@@ -64,7 +64,10 @@ export class SettingsService implements OnModuleInit {
       }
     }
     if (typeof input.codEnabled === 'boolean') out.codEnabled = input.codEnabled;
-    for (const k of ['codFee', 'extraStopFee', 'maxStops', 'absenceWaitMin'] as const) {
+    if (typeof input.cancelFeeEnabled === 'boolean') out.cancelFeeEnabled = input.cancelFeeEnabled;
+    if (typeof input.returnCodeEnabled === 'boolean') out.returnCodeEnabled = input.returnCodeEnabled;
+    if (input.cancelFeeType === 'PERCENT' || input.cancelFeeType === 'FIXED') out.cancelFeeType = input.cancelFeeType;
+    for (const k of ['codFee', 'extraStopFee', 'maxStops', 'absenceWaitMin', 'cancelFeeValue', 'cancelFreeMinutes', 'cancelRequestAutoMin'] as const) {
       if (input[k] !== undefined) out[k] = input[k] as number;
     }
     return out;
@@ -96,5 +99,9 @@ export class SettingsService implements OnModuleInit {
     num(g.extraStopFee, 'Supplément par arrêt', 0, 100_000);
     num(g.maxStops, 'Arrêts maximum', 1, MAX_STOPS);
     num(g.absenceWaitMin, 'Attente avant absence (min)', 1, 60);
+    if (g.cancelFeeType === 'PERCENT') num(g.cancelFeeValue, 'Frais de déplacement (%)', 0, 100);
+    else num(g.cancelFeeValue, 'Frais de déplacement (F)', 0, 100_000);
+    num(g.cancelFreeMinutes, 'Annulation gratuite (min)', 0, 60);
+    num(g.cancelRequestAutoMin, 'Délai de confirmation d’une annulation (min)', 1, 120);
   }
 }

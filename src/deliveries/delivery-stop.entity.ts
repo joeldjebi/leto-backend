@@ -5,6 +5,7 @@ export enum StopStatus {
   PENDING = 'PENDING',
   DELIVERED = 'DELIVERED',
   FAILED = 'FAILED', // destinataire absent ou refus
+  CANCELLED = 'CANCELLED', // annulé par l'expéditeur (ou à la demande du destinataire, confirmée)
 }
 
 /** Décision sur une contestation : donnée en faveur de l'expéditeur (UPHELD) ou du livreur (REJECTED) */
@@ -103,4 +104,18 @@ export class DeliveryStop {
   disputeResolvedBy: string | null;
   @Column({ type: 'timestamptz', nullable: true })
   disputeResolvedAt: Date | null;
+
+  // Annulation de l'arrêt
+  @Column({ type: 'timestamptz', nullable: true })
+  cancelledAt: Date | null;
+  /** Qui a annulé : « Client », « Livreur (confirmé par le client) », « Automatique » */
+  @Column({ type: 'text', nullable: true })
+  cancelledBy: string | null;
+  @Column({ type: 'text', nullable: true })
+  cancelReason: string | null;
+  /** Le livreur signale que le destinataire annule : en attente de confirmation de l'expéditeur */
+  @Column({ type: 'timestamptz', nullable: true })
+  cancelRequestedAt: Date | null;
+  @Column({ type: 'text', nullable: true })
+  cancelRequestNote: string | null;
 }

@@ -45,6 +45,16 @@ export interface PricingGrid {
   maxStops: number;
   /** Attente minimale (minutes) avant de pouvoir signaler un destinataire absent */
   absenceWaitMin: number;
+  /** Frais de déplacement si l'expéditeur annule alors que le livreur est en route */
+  cancelFeeEnabled: boolean;
+  cancelFeeType: 'PERCENT' | 'FIXED';
+  cancelFeeValue: number;
+  /** Annulation gratuite pendant ces minutes après l'acceptation */
+  cancelFreeMinutes: number;
+  /** Colis non livrés : retour à l'expéditeur confirmé par un code */
+  returnCodeEnabled: boolean;
+  /** Sans réponse de l'expéditeur, l'annulation signalée par le livreur est acceptée après ces minutes */
+  cancelRequestAutoMin: number;
 }
 
 /** Limite technique du nombre d'arrêts */
@@ -67,6 +77,12 @@ export const defaultGrid = (): PricingGrid => ({
   extraStopFee: 300,
   maxStops: MAX_STOPS,
   absenceWaitMin: Number(process.env.ABSENCE_WAIT_MIN ?? 5),
+  cancelFeeEnabled: false,
+  cancelFeeType: 'FIXED',
+  cancelFeeValue: 500,
+  cancelFreeMinutes: 2,
+  returnCodeEnabled: false,
+  cancelRequestAutoMin: 10,
 });
 
 /**

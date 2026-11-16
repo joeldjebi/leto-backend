@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsBoolean,
   IsEnum,
   IsInt,
   IsLatitude,
@@ -85,6 +86,22 @@ export class ResolveDisputeDto {
 
 export class AdminCancelDto {
   @IsString() @IsNotEmpty() @MaxLength(300) reason: string;
+}
+
+export class CancelStopDto {
+  @IsOptional() @IsString() @MaxLength(300) reason?: string;
+}
+
+export class CancelRequestDto {
+  @IsOptional() @IsString() @MaxLength(300) note?: string;
+}
+
+export class AnswerCancelDto {
+  @IsBoolean() accept: boolean;
+}
+
+export class ReturnDto {
+  @Matches(/^\d{4}$/, { message: 'Code de retour : 4 chiffres' }) code: string;
 }
 
 export class DisputeStopDto {

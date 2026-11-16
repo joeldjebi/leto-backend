@@ -114,6 +114,21 @@ export class Delivery {
   @Column({ type: 'text', nullable: true })
   cancelledBy: string | null;
 
+  /** Frais de déplacement dus par l'expéditeur (course annulée alors que le livreur était en route) */
+  @Column({ type: 'int', nullable: true })
+  cancellationFee: number | null;
+  /** L'entreprise du livreur a récupéré ces frais auprès de l'expéditeur */
+  @Column({ type: 'timestamptz', nullable: true })
+  cancellationFeeSettledAt: Date | null;
+
+  /** Retour des colis non livrés : code donné par l'expéditeur au livreur (masqué par défaut) */
+  @Column({ type: 'varchar', length: 4, nullable: true, select: false })
+  returnCode: string | null;
+  @Column({ default: false })
+  returnRequired: boolean;
+  @Column({ type: 'timestamptz', nullable: true })
+  returnedAt: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
   @UpdateDateColumn({ type: 'timestamptz' })

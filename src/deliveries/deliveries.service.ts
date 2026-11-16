@@ -1,7 +1,7 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomInt } from 'crypto';
-import { DataSource, Repository } from 'typeorm';
+import { DataSource, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { SavedAddress } from '../addresses/saved-address.entity';
 import { BillingService } from '../billing/billing.service';
 import { AuthUser } from '../common/decorators';
@@ -18,7 +18,10 @@ import { DeliveryStop, DisputeDecision, FailureReason, StopStatus } from './deli
 import { Delivery, DeliveryStatus } from './delivery.entity';
 
 @Injectable()
-export class DeliveriesService {
+export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
+  private logger = new Logger(DeliveriesService.name);
+  private timer?: NodeJS.Timeout;
+
   constructor(
     private dataSource: DataSource,
     @InjectRepository(Delivery) private repo: Repository<Delivery>,
@@ -48,7 +51,7 @@ export class DeliveriesService {
       .leftJoinAndSelect('d.stops', 'stop')
       .orderBy('d.createdAt', 'DESC')
       .addOrderBy('stop.position', 'ASC');
-    return withCodes ? qb.addSelect('stop.confirmationCode') : qb;
+    return withCodes ? qb.addSelect('stop.confirmationCode').addSelect('d.returnCode') : qb;
   }
 
   // ---------- Client ----------
@@ -80,6 +83,7 @@ export class DeliveriesService {
         distanceKm: Math.round(route.distanceKm * 10) / 10,
         durationMin: route.durationMin,
         price: computePrice(grid, route.distanceKm, vehicleType, speed, ordered.length, codStops),
+        returnCode: randomInt(0, 10000).toString().padStart(4, '0'),
         stops: ordered.map((s, position) =>
           this.stops.create({
             ...s,
@@ -125,14 +129,148 @@ export class DeliveriesService {
     return d;
   }
 
-  async cancel(clientId: string, id: string) {
+  /** Frais de déplacement si la course est annulée maintenant (livreur en route), sinon 0 */
+  private cancellationFee(d: Delivery) {
+    const g = this.settings.pricing;
+    if (!g.cancelFeeEnabled || d.status !== DeliveryStatus.ACCEPTED || !d.acceptedAt) return 0;
+    if (Date.now() - d.acceptedAt.getTime() < g.cancelFreeMinutes * 60_000) return 0;
+    const fee = g.cancelFeeType === 'PERCENT' ? (d.price * g.cancelFeeValue) / 100 : g.cancelFeeValue;
+    return Math.ceil(fee / 50) * 50;
+  }
+
+  /** Ce que coûterait l'annulation (affiché à l'expéditeur avant de confirmer) */
+  async cancelPreview(clientId: string, id: string) {
+    const d = await this.oneForClient(clientId, id);
+    const allowed = d.status === DeliveryStatus.PENDING || d.status === DeliveryStatus.ACCEPTED;
+    return {
+      allowed,
+      fee: allowed ? this.cancellationFee(d) : 0,
+      reason: allowed ? null : 'Les colis sont déjà récupérés : annulez les arrêts un par un',
+      freeMinutes: this.settings.pricing.cancelFreeMinutes,
+    };
+  }
+
+  /** Annulation de toute la course : gratuite en attente, frais de déplacement possibles si le livreur est en route */
+  async cancel(clientId: string, id: string, by = 'Client') {
+    const d = await this.oneForClient(clientId, id);
+    if (d.status === DeliveryStatus.PICKED_UP) {
+      throw new BadRequestException('Les colis sont déjà récupérés : annulez les arrêts un par un');
+    }
+    if (d.status !== DeliveryStatus.PENDING && d.status !== DeliveryStatus.ACCEPTED) {
+      throw new BadRequestException('Course déjà terminée ou annulée');
+    }
+    const fee = this.cancellationFee(d);
     const res = await this.repo.update(
-      { id, clientId, status: DeliveryStatus.PENDING },
-      { status: DeliveryStatus.CANCELLED, cancelledAt: new Date(), cancelledBy: 'Client' },
+      { id, clientId, status: d.status },
+      { status: DeliveryStatus.CANCELLED, cancelledAt: new Date(), cancelledBy: by, cancellationFee: fee || null },
     );
-    if (!res.affected) throw new BadRequestException('Seule une course en attente peut être annulée');
+    if (!res.affected) throw new ConflictException('La course vient de changer d’état : réessayez');
     await this.closeOffers(id);
+    if (d.driverId) {
+      this.tracking.emitToUser(d.driverId, 'delivery:cancelled', { deliveryId: id, reason: 'Annulée par l’expéditeur', fee });
+    }
+    if (d.companyId && fee) this.tracking.emitToCompany(d.companyId, 'delivery:cancel-fee', { deliveryId: id, fee });
     return this.notify(await this.findOne(id, true));
+  }
+
+  // ---------- Annulation d'un arrêt ----------
+
+  /** L'expéditeur retire un arrêt (avant la récupération : prix recalculé ; après : prix inchangé, colis à retourner) */
+  async cancelStop(clientId: string, id: string, stopId: string, reason?: string) {
+    const d = await this.oneForClient(clientId, id);
+    return this.applyStopCancel(d, stopId, 'Client', reason ?? null);
+  }
+
+  private async applyStopCancel(d: Delivery, stopId: string, by: string, reason: string | null) {
+    const stop = d.stops.find((s) => s.id === stopId);
+    if (!stop) throw new NotFoundException('Arrêt introuvable');
+    if (stop.status !== StopStatus.PENDING) throw new BadRequestException('Cet arrêt est déjà traité');
+    if (![DeliveryStatus.PENDING, DeliveryStatus.ACCEPTED, DeliveryStatus.PICKED_UP].includes(d.status)) {
+      throw new BadRequestException('Course déjà terminée ou annulée');
+    }
+    const remaining = d.stops.filter((s) => s.status === StopStatus.PENDING && s.id !== stopId);
+    const beforePickup = d.status !== DeliveryStatus.PICKED_UP;
+    // Dernier arrêt avant la récupération : c'est toute la course qui est annulée
+    if (beforePickup && remaining.length === 0) return this.cancel(d.clientId, d.id, by);
+
+    await this.stops.update(stopId, {
+      status: StopStatus.CANCELLED,
+      cancelledAt: new Date(),
+      cancelledBy: by,
+      cancelReason: reason,
+      cancelRequestedAt: null,
+    });
+    if (beforePickup) await this.reprice(d, remaining);
+    if (d.driverId) {
+      this.tracking.emitToUser(d.driverId, 'stop:cancelled', { deliveryId: d.id, stopId, recipientName: stop.recipientName });
+    }
+    this.tracking.emitToUser(d.clientId, 'stop:cancelled', { deliveryId: d.id, stopId, recipientName: stop.recipientName });
+    return beforePickup ? this.notify(await this.findOne(d.id, true)) : this.afterStop(d.id);
+  }
+
+  /** Nouveau prix et nouvel itinéraire avec les arrêts restants (avant la récupération des colis) */
+  private async reprice(d: Delivery, remaining: DeliveryStop[]) {
+    const grid = this.settings.pricing;
+    const route = await this.geo.routeVia([{ lat: d.pickupLat, lng: d.pickupLng }, ...remaining.map((s) => ({ lat: s.lat, lng: s.lng }))]);
+    const codStops = grid.codEnabled ? remaining.filter((s) => s.codAmount > 0).length : 0;
+    const computed = computePrice(grid, route.distanceKm, d.vehicleType, d.speed, remaining.length, codStops);
+    // Prix négocié (proposition acceptée) : on garde la même proportion
+    const listPrice = computePrice(grid, d.distanceKm ?? route.distanceKm, d.vehicleType, d.speed, d.stops.filter((s) => s.status !== StopStatus.CANCELLED).length, codStops);
+    const price = Math.min(d.price, d.price > listPrice ? Math.ceil((computed * d.price) / listPrice / 50) * 50 : computed);
+    await this.repo.update(d.id, { price, distanceKm: Math.round(route.distanceKm * 10) / 10, durationMin: route.durationMin });
+    await this.billing.recompute(d.id);
+  }
+
+  /** Le livreur signale que le destinataire annule ; l'expéditeur confirme (ou sans réponse : accepté automatiquement) */
+  async requestStopCancel(driverId: string, id: string, stopId: string, note?: string) {
+    const d = await this.findOne(id);
+    if (d.driverId !== driverId) throw new ForbiddenException('Ce n’est pas votre course');
+    if (d.status !== DeliveryStatus.ACCEPTED && d.status !== DeliveryStatus.PICKED_UP) throw new BadRequestException('Course non active');
+    const stop = d.stops.find((s) => s.id === stopId);
+    if (!stop || stop.status !== StopStatus.PENDING) throw new BadRequestException('Cet arrêt est déjà traité');
+    if (stop.cancelRequestedAt) throw new BadRequestException('Demande déjà envoyée à l’expéditeur');
+    await this.stops.update(stopId, { cancelRequestedAt: new Date(), cancelRequestNote: note ?? null });
+    this.tracking.emitToUser(d.clientId, 'stop:cancel-request', {
+      deliveryId: id,
+      stopId,
+      recipientName: stop.recipientName,
+      autoMin: this.settings.pricing.cancelRequestAutoMin,
+    });
+    return this.notify(await this.findOne(id));
+  }
+
+  /** Réponse de l'expéditeur à une annulation signalée par le livreur */
+  async answerCancelRequest(clientId: string, id: string, stopId: string, accept: boolean) {
+    const d = await this.oneForClient(clientId, id);
+    const stop = d.stops.find((s) => s.id === stopId);
+    if (!stop?.cancelRequestedAt || stop.status !== StopStatus.PENDING) throw new BadRequestException('Aucune demande en attente');
+    if (accept) return this.applyStopCancel(d, stopId, 'Livreur (confirmé par l’expéditeur)', stop.cancelRequestNote);
+    await this.stops.update(stopId, { cancelRequestedAt: null });
+    if (d.driverId) this.tracking.emitToUser(d.driverId, 'stop:cancel-refused', { deliveryId: id, stopId, recipientName: stop.recipientName });
+    return this.notify(await this.findOne(id, true));
+  }
+
+  /** Demandes restées sans réponse : acceptées automatiquement */
+  private async autoAcceptCancelRequests() {
+    const limit = new Date(Date.now() - this.settings.pricing.cancelRequestAutoMin * 60_000);
+    const due = await this.stops.find({ where: { status: StopStatus.PENDING, cancelRequestedAt: LessThan(limit) } });
+    for (const s of due) {
+      try {
+        const d = await this.findOne(s.deliveryId, true);
+        await this.applyStopCancel(d, s.id, 'Automatique (sans réponse de l’expéditeur)', s.cancelRequestNote);
+      } catch (e) {
+        this.logger.warn(`Annulation automatique impossible (${s.id}) : ${(e as Error).message}`);
+        await this.stops.update(s.id, { cancelRequestedAt: null });
+      }
+    }
+  }
+
+  onModuleInit() {
+    this.timer = setInterval(() => this.autoAcceptCancelRequests().catch(() => {}), 30_000);
+  }
+
+  onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer);
   }
 
   /** L'expéditeur conteste un échec de livraison (litige) */
@@ -256,9 +394,42 @@ export class DeliveriesService {
   private async afterStop(id: string) {
     const pending = await this.stops.countBy({ deliveryId: id, status: StopStatus.PENDING });
     if (pending === 0) {
-      await this.repo.update(id, { status: DeliveryStatus.DELIVERED, deliveredAt: new Date() });
-      await this.billing.charge(id);
+      // Colis non livrés (échec ou annulation) : retour à l'expéditeur confirmé par son code, si l'admin l'exige
+      const undelivered = await this.stops.countBy({ deliveryId: id, status: Not(StopStatus.DELIVERED) });
+      const d = await this.repo.findOneBy({ id });
+      if (this.settings.pricing.returnCodeEnabled && undelivered > 0 && d?.pickedUpAt && !d.returnedAt) {
+        await this.repo.update(id, { returnRequired: true });
+        this.tracking.emitToUser(d.clientId, 'delivery:return', { deliveryId: id, parcels: undelivered });
+      } else {
+        await this.finish(id);
+      }
     }
+    return this.notify(await this.findOne(id));
+  }
+
+  private async finish(id: string) {
+    await this.repo.update(id, { status: DeliveryStatus.DELIVERED, deliveredAt: new Date() });
+    await this.billing.charge(id);
+  }
+
+  /** Le livreur rapporte les colis non livrés : l'expéditeur lui donne son code de retour */
+  async confirmReturn(driverId: string, id: string, code: string) {
+    const d = await this.findOne(id, true);
+    if (d.driverId !== driverId) throw new ForbiddenException('Ce n’est pas votre course');
+    if (!d.returnRequired || d.returnedAt || d.status !== DeliveryStatus.PICKED_UP) throw new BadRequestException('Aucun retour attendu');
+    if (d.returnCode !== code) throw new BadRequestException('Code de retour incorrect');
+    await this.repo.update(id, { returnedAt: new Date() });
+    await this.finish(id);
+    return this.notify(await this.findOne(id));
+  }
+
+  /** L'entreprise a récupéré les frais de déplacement auprès de l'expéditeur */
+  async settleCancellationFee(companyId: string, id: string) {
+    const res = await this.repo.update(
+      { id, companyId, cancellationFee: Not(IsNull()), cancellationFeeSettledAt: IsNull() },
+      { cancellationFeeSettledAt: new Date() },
+    );
+    if (!res.affected) throw new BadRequestException('Rien à régler pour cette course');
     return this.notify(await this.findOne(id));
   }
 

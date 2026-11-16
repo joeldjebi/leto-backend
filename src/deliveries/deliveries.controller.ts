@@ -4,7 +4,7 @@ import { Role } from '../users/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/user.entity';
-import { AdminCancelDto, ConfirmStopDto, CreateDeliveryDto, DisputeStopDto, FailStopDto, ResolveDisputeDto } from './deliveries.dto';
+import { AdminCancelDto, AnswerCancelDto, CancelRequestDto, CancelStopDto, ConfirmStopDto, CreateDeliveryDto, DisputeStopDto, FailStopDto, ResolveDisputeDto, ReturnDto } from './deliveries.dto';
 import { DeliveriesService } from './deliveries.service';
 
 @Controller('deliveries')
@@ -37,10 +37,38 @@ export class DeliveriesController {
     return this.service.oneForClient(user.sub, id);
   }
 
+  @Get('mine/:id/cancel-preview')
+  @Roles(Role.CLIENT)
+  cancelPreview(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.cancelPreview(user.sub, id);
+  }
+
   @Post(':id/cancel')
   @Roles(Role.CLIENT)
   cancel(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.service.cancel(user.sub, id);
+  }
+
+  @Post(':id/stops/:stopId/cancel')
+  @Roles(Role.CLIENT)
+  cancelStop(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('stopId', ParseUUIDPipe) stopId: string,
+    @Body() dto: CancelStopDto,
+  ) {
+    return this.service.cancelStop(user.sub, id, stopId, dto.reason);
+  }
+
+  @Post(':id/stops/:stopId/cancel-request/answer')
+  @Roles(Role.CLIENT)
+  answerCancel(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('stopId', ParseUUIDPipe) stopId: string,
+    @Body() dto: AnswerCancelDto,
+  ) {
+    return this.service.answerCancelRequest(user.sub, id, stopId, dto.accept);
   }
 
   @Post(':id/stops/:stopId/dispute')
@@ -102,6 +130,29 @@ export class DeliveriesController {
   }
 
   // ----- Entreprise / Super Admin -----
+  @Post(':id/stops/:stopId/cancel-request')
+  @Roles(Role.DRIVER)
+  requestCancel(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('stopId', ParseUUIDPipe) stopId: string,
+    @Body() dto: CancelRequestDto,
+  ) {
+    return this.service.requestStopCancel(user.sub, id, stopId, dto.note);
+  }
+
+  @Post(':id/return')
+  @Roles(Role.DRIVER)
+  confirmReturn(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReturnDto) {
+    return this.service.confirmReturn(user.sub, id, dto.code);
+  }
+
+  @Post(':id/cancellation-fee/settled')
+  @Roles(Role.COMPANY)
+  settleFee(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.settleCancellationFee(user.companyId, id);
+  }
+
   @Get('company')
   @Roles(Role.COMPANY)
   forCompany(@CurrentUser() user: AuthUser) {

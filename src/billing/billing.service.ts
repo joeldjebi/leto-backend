@@ -152,6 +152,16 @@ export class BillingService implements OnModuleInit {
     return { ok: true, reason: null };
   }
 
+  /** Prix modifié avant la fin (arrêt retiré) : la commission réservée suit le nouveau prix */
+  async recompute(deliveryId: string) {
+    const d = await this.db.getRepository(Delivery).findOneBy({ id: deliveryId });
+    if (!d?.companyId || d.commissionAmount == null || d.commissionChargedAt) return;
+    const c = await this.companies.findOneBy({ id: d.companyId });
+    if (!c) return;
+    const { amount, label } = this.commission(c, d.price);
+    await this.db.getRepository(Delivery).update(d.id, { commissionAmount: amount, commissionRule: label });
+  }
+
   /** Fin de tournée : prélève la commission réservée (une seule fois) */
   async charge(deliveryId: string) {
     await this.db.transaction(async (m) => {
