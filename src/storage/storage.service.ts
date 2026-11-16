@@ -67,12 +67,19 @@ export class StorageService {
 
   async save(name: string, body: Buffer, contentType: string, folder: StorageFolder = 'photos') {
     if (this.s3) {
-      await this.s3.send(
-        new PutObjectCommand({ Bucket: this.bucket(folder), Key: this.key(folder, name), Body: body, ContentType: contentType }),
-      );
-    } else {
-      await writeFile(join(LOCAL_UPLOAD_DIR, name), body);
+      try {
+        await this.s3.send(
+          new PutObjectCommand({ Bucket: this.bucket(folder), Key: this.key(folder, name), Body: body, ContentType: contentType }),
+          { abortSignal: AbortSignal.timeout(20_000) },
+        );
+        return;
+      } catch (e) {
+        // Wasabi indisponible : on garde le fichier sur le serveur (la lecture sert d'abord les fichiers locaux)
+        this.logger.error(`Envoi Wasabi impossible (${(e as Error).name}: ${(e as Error).message}) — fichier gardé en local`);
+      }
     }
+    mkdirSync(LOCAL_UPLOAD_DIR, { recursive: true });
+    await writeFile(join(LOCAL_UPLOAD_DIR, name), body);
   }
 
   /** Lien de lecture signé (Wasabi), valable [expiresIn] secondes */
