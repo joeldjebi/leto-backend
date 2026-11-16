@@ -6,19 +6,19 @@ export class CreateCompanyDto {
   @IsNotEmpty()
   name: string;
 
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE })
+  @Matches(PHONE_REGEX, { message: `Téléphone de l’entreprise : ${PHONE_MESSAGE}` })
   phone: string;
 
   /** Compte du gérant créé en même temps que l'entreprise */
   @IsString()
-  @IsNotEmpty()
+  @IsNotEmpty({ message: 'Nom du gérant obligatoire' })
   managerName: string;
 
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE })
+  @Matches(PHONE_REGEX, { message: `Téléphone du gérant : ${PHONE_MESSAGE}` })
   managerPhone: string;
 
   @IsString()
-  @MinLength(6)
+  @MinLength(6, { message: 'Mot de passe du gérant : 6 caractères minimum' })
   managerPassword: string;
 }
 
