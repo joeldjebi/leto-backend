@@ -32,6 +32,19 @@ export class StorageService {
         credentials: { accessKeyId: WAS_ACCESS_KEY, secretAccessKey: WAS_SECRET_KEY },
         forcePathStyle: true,
       });
+      // Wasabi ne répond pas à « Expect: 100-continue » (ajouté par le SDK sur les envois) :
+      // sans ce retrait, chaque envoi attend ~60 s puis échoue (RequestTimeout → erreur 500).
+      this.s3.middlewareStack.add(
+        (next) => (args) => {
+          const headers = (args.request as { headers?: Record<string, string> })?.headers;
+          if (headers) {
+            delete headers['Expect'];
+            delete headers['expect'];
+          }
+          return next(args);
+        },
+        { step: 'finalizeRequest', name: 'removeExpectContinue', priority: 'low' },
+      );
       this.logger.log(`Stockage : Wasabi (bucket ${WASABI_BUCKET}, région ${region})`);
     } else {
       mkdirSync(LOCAL_UPLOAD_DIR, { recursive: true });

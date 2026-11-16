@@ -108,6 +108,7 @@ export class AuthService implements OnApplicationBootstrap {
     const changes: Partial<User> = {};
     if (dto.name !== undefined) changes.name = dto.name.trim();
     if (dto.accountType !== undefined && user.role === Role.CLIENT) changes.accountType = dto.accountType;
+    if (dto.avatarUrl !== undefined) changes.avatarUrl = dto.avatarUrl;
 
     const phoneChange = dto.phone !== undefined && dto.phone !== user.phone;
     if (phoneChange || dto.newPassword) {

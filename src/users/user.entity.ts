@@ -40,6 +40,10 @@ export class User {
   @Column({ type: 'enum', enum: AccountType, nullable: true })
   accountType: AccountType | null;
 
+  /** Photo de profil (selfie), chemin /uploads/… */
+  @Column({ type: 'text', nullable: true })
+  avatarUrl: string | null;
+
   @Column({ default: true })
   active: boolean;
 

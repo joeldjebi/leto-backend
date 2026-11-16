@@ -1,4 +1,4 @@
-import { IsEnum, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { IsEnum, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength, ValidateIf } from 'class-validator';
 import { PersonDto, PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
 import { AccountType } from '../users/user.entity';
 
@@ -31,6 +31,12 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsEnum(AccountType, { message: 'Type de compte : particulier ou boutique' })
   accountType?: AccountType;
+
+  /** Photo de profil (chemin renvoyé par /uploads), null pour la retirer */
+  @IsOptional()
+  @ValidateIf((o) => o.avatarUrl !== null)
+  @Matches(/^\/uploads\/[0-9a-f-]{36}\.(jpg|png|webp|heic)$/, { message: 'Photo invalide' })
+  avatarUrl?: string | null;
 
   @IsOptional()
   @IsString()
