@@ -22,6 +22,7 @@ import { OffersController } from './offers/offers.controller';
 import { OffersService } from './offers/offers.service';
 import { PricingController } from './pricing/pricing.controller';
 import { UploadsController } from './uploads/uploads.controller';
+import { StorageService } from './storage/storage.service';
 import { TrackingGateway } from './tracking/tracking.gateway';
 import { User } from './users/user.entity';
 import { UsersController } from './users/users.controller';
@@ -64,6 +65,7 @@ import { UsersController } from './users/users.controller';
     DeliveriesService,
     GeoService,
     OffersService,
+    StorageService,
     TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

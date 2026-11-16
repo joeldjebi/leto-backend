@@ -71,6 +71,14 @@ Sur une course en attente, un livreur peut l'accepter au prix affiché ou propos
 - s'il accepte, la course est attribuée à ce livreur, au prix proposé, et les autres propositions sont refusées ;
 - les livreurs reçoivent `offer:accepted` ou `offer:rejected`.
 
+## Stockage des fichiers (Wasabi)
+
+Les photos (adresses, preuves d'échec) sont stockées sur **Wasabi** (compatible S3) dès que `WAS_ACCESS_KEY`, `WAS_SECRET_KEY` et `WASABI_BUCKET` sont renseignées (voir `.env.example`). Sinon, elles vont dans le dossier local `uploads/` (développement).
+
+- Le bucket reste **privé** : `GET /uploads/<nom>` redirige vers un **lien signé** valable 1 h. L'app et la base gardent un chemin stable `/uploads/<nom>`.
+- Organisation : `photos/<uuid>.jpg` dans `WASABI_BUCKET` ; `WASABI_IDENTITY_BUCKET` est réservé aux pièces d'identité (dossier `identity/`).
+- Les photos stockées en local avant le passage à Wasabi restent lisibles.
+
 ## Cartographie (OpenStreetMap + Google)
 
 - Les apps affichent les tuiles OpenStreetMap.
