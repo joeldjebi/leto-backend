@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, MoreThan, Repository } from 'typeorm';
+import { BillingService } from '../billing/billing.service';
 import { AuthUser } from '../common/decorators';
 import { Delivery, DeliveryStatus } from '../deliveries/delivery.entity';
 import { haversineKm } from '../geo/communes';
@@ -11,6 +12,7 @@ import { Offer, OfferStatus } from './offer.entity';
 export const OFFER_TTL_MS = 2 * 60 * 1000;
 /** Une proposition ne peut pas dépasser 2 × le prix affiché */
 export const MAX_OFFER_FACTOR = 2;
+const UNPAYABLE = 'Ce livreur ne peut plus prendre la course : choisissez une autre proposition';
 
 @Injectable()
 export class OffersService {
@@ -19,6 +21,7 @@ export class OffersService {
     @InjectRepository(Offer) private offers: Repository<Offer>,
     @InjectRepository(Delivery) private deliveries: Repository<Delivery>,
     private tracking: TrackingGateway,
+    private billing: BillingService,
   ) {}
 
   // ---------- Livreur ----------
@@ -32,6 +35,8 @@ export class OffersService {
     if (price > d.price * MAX_OFFER_FACTOR) {
       throw new BadRequestException(`Proposition trop élevée (maximum ${d.price * MAX_OFFER_FACTOR} F)`);
     }
+    // L'entreprise doit pouvoir payer la commission à ce prix (vérifié à nouveau quand le client accepte)
+    await this.billing.check(user.companyId, price);
     // Une seule proposition active par livreur et par course : la nouvelle remplace l'ancienne
     await this.offers.update(
       { deliveryId, driverId: user.sub, status: OfferStatus.PENDING },
@@ -91,6 +96,9 @@ export class OffersService {
       throw new BadRequestException('Cette proposition a expiré');
     }
     const others = await this.dataSource.transaction(async (m) => {
+      const commission = await this.billing.reserve(m, offer.companyId, offer.price).catch(() => {
+        throw new BadRequestException(UNPAYABLE);
+      });
       const res = await m
         .createQueryBuilder()
         .update(Delivery)
@@ -100,6 +108,7 @@ export class OffersService {
           companyId: offer.companyId,
           price: offer.price,
           acceptedAt: () => 'NOW()',
+          ...commission,
         })
         .where('id = :id AND status = :s', { id: offer.deliveryId, s: DeliveryStatus.PENDING })
         .execute();
@@ -108,6 +117,13 @@ export class OffersService {
       const rest = await m.find(Offer, { where: { deliveryId: offer.deliveryId, status: OfferStatus.PENDING } });
       await m.update(Offer, { deliveryId: offer.deliveryId, status: OfferStatus.PENDING }, { status: OfferStatus.REJECTED });
       return rest;
+    }).catch(async (e) => {
+      // Entreprise du livreur sans crédit ou abonnement : sa proposition est écartée
+      if (e?.message === UNPAYABLE) {
+        await this.offers.update({ id: offer.id, status: OfferStatus.PENDING }, { status: OfferStatus.REJECTED });
+        this.tracking.emitToUser(offer.driverId, 'offer:rejected', { deliveryId: offer.deliveryId });
+      }
+      throw e;
     });
 
     this.tracking.emitToUser(offer.driverId, 'offer:accepted', { deliveryId: offer.deliveryId });

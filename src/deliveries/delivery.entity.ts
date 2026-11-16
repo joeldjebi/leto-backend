@@ -85,6 +85,17 @@ export class Delivery {
   @Column('int')
   price: number;
 
+  /** Commission LETO (fixée à l'acceptation, prélevée sur le crédit de l'entreprise à la fin de la tournée) */
+  @Column({ type: 'int', nullable: true })
+  commissionAmount: number | null;
+  @Column({ type: 'text', nullable: true })
+  commissionRule: string | null;
+  @Column({ type: 'timestamptz', nullable: true })
+  commissionChargedAt: Date | null;
+  /** Part remboursée après un litige donné au client */
+  @Column({ type: 'int', default: 0 })
+  commissionRefunded: number;
+
   @Column({ type: 'enum', enum: DeliveryStatus, default: DeliveryStatus.PENDING })
   status: DeliveryStatus;
 

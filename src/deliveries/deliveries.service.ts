@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomInt } from 'crypto';
 import { DataSource, Repository } from 'typeorm';
 import { SavedAddress } from '../addresses/saved-address.entity';
+import { BillingService } from '../billing/billing.service';
 import { AuthUser } from '../common/decorators';
 import { haversineKm, nearestCommune } from '../geo/communes';
 import { GeoService } from '../geo/geo.service';
@@ -28,6 +29,7 @@ export class DeliveriesService {
     private tracking: TrackingGateway,
     private geo: GeoService,
     private settings: SettingsService,
+    private billing: BillingService,
   ) {}
 
   /** Notifie en temps réel puis renvoie la course */
@@ -161,15 +163,23 @@ export class DeliveriesService {
     return this.query().where('d.driverId = :driverId', { driverId }).getMany();
   }
 
-  /** Acceptation atomique : si deux livreurs acceptent en même temps, un seul gagne */
+  /**
+   * Acceptation atomique : si deux livreurs acceptent en même temps, un seul gagne.
+   * L'entreprise doit être abonnée et avoir assez de crédit : la commission est réservée.
+   */
   async accept(user: AuthUser, id: string) {
-    const res = await this.repo
-      .createQueryBuilder()
-      .update(Delivery)
-      .set({ status: DeliveryStatus.ACCEPTED, driverId: user.sub, companyId: user.companyId, acceptedAt: () => 'NOW()' })
-      .where('id = :id AND status = :s', { id, s: DeliveryStatus.PENDING })
-      .execute();
-    if (!res.affected) throw new ConflictException('Course déjà prise ou indisponible');
+    await this.dataSource.transaction(async (m) => {
+      const d = await m.findOneBy(Delivery, { id });
+      if (!d || d.status !== DeliveryStatus.PENDING) throw new ConflictException('Course déjà prise ou indisponible');
+      const commission = await this.billing.reserve(m, user.companyId, d.price);
+      const res = await m
+        .createQueryBuilder()
+        .update(Delivery)
+        .set({ status: DeliveryStatus.ACCEPTED, driverId: user.sub, companyId: user.companyId, acceptedAt: () => 'NOW()', ...commission })
+        .where('id = :id AND status = :s', { id, s: DeliveryStatus.PENDING })
+        .execute();
+      if (!res.affected) throw new ConflictException('Course déjà prise ou indisponible');
+    });
     await this.closeOffers(id);
     return this.notify(await this.findOne(id));
   }
@@ -242,7 +252,10 @@ export class DeliveriesService {
   /** Après chaque arrêt : la course est terminée quand il ne reste plus d'arrêt en attente */
   private async afterStop(id: string) {
     const pending = await this.stops.countBy({ deliveryId: id, status: StopStatus.PENDING });
-    if (pending === 0) await this.repo.update(id, { status: DeliveryStatus.DELIVERED, deliveredAt: new Date() });
+    if (pending === 0) {
+      await this.repo.update(id, { status: DeliveryStatus.DELIVERED, deliveredAt: new Date() });
+      await this.billing.charge(id);
+    }
     return this.notify(await this.findOne(id));
   }
 
@@ -300,6 +313,7 @@ export class DeliveriesService {
       disputeResolvedBy: by,
       disputeResolvedAt: new Date(),
     });
+    if (decision === DisputeDecision.UPHELD) await this.billing.refundStop(id, by);
     this.tracking.emitToUser(d.clientId, 'dispute:resolved', { deliveryId: id, stopId, decision });
     return this.notify(await this.findOne(id));
   }

@@ -7,6 +7,9 @@ import { AddressesController } from './addresses/addresses.controller';
 import { SavedAddress } from './addresses/saved-address.entity';
 import { AdminController } from './admin/admin.controller';
 import { StatsService } from './admin/stats.service';
+import { BillingController } from './billing/billing.controller';
+import { CreditTransaction, Payment } from './billing/billing.entities';
+import { BillingService } from './billing/billing.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { AuthGuard } from './common/auth.guard';
@@ -41,12 +44,12 @@ import { UsersController } from './users/users.controller';
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting],
+      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction],
       // Crée / met à jour les tables au démarrage (DB_SYNC=false pour désactiver).
       // À remplacer par des migrations TypeORM quand le schéma sera stabilisé.
       synchronize: process.env.DB_SYNC !== 'false',
     }),
-    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting]),
+    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
@@ -57,6 +60,7 @@ import { UsersController } from './users/users.controller';
     AddressesController,
     AdminController,
     AuthController,
+    BillingController,
     CompaniesController,
     DeliveriesController,
     GeoController,
@@ -67,6 +71,7 @@ import { UsersController } from './users/users.controller';
   ],
   providers: [
     AuthService,
+    BillingService,
     CompaniesService,
     DeliveriesService,
     GeoService,
