@@ -1,5 +1,7 @@
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { Public } from '../common/decorators';
 import { GeoService } from './geo.service';
+import { MapStyleService } from './map-style.service';
 
 const num = (v: string, name: string) => {
   const n = Number(v);
@@ -10,7 +12,17 @@ const num = (v: string, name: string) => {
 /** Recherche de lieux, adresse d'un point, itinéraire (utilisateurs connectés) */
 @Controller('geo')
 export class GeoController {
-  constructor(private geo: GeoService) {}
+  constructor(
+    private geo: GeoService,
+    private mapStyle: MapStyleService,
+  ) {}
+
+  /** Fond de carte choisi par le SA (app et back-office) */
+  @Public()
+  @Get('map-style')
+  style() {
+    return this.mapStyle.style();
+  }
 
   @Get('search')
   search(@Query('q') q = '', @Query('lat') lat?: string, @Query('lng') lng?: string) {

@@ -22,6 +22,7 @@ import { DeliveryStop } from './deliveries/delivery-stop.entity';
 import { Delivery } from './deliveries/delivery.entity';
 import { GeoController } from './geo/geo.controller';
 import { GeoService } from './geo/geo.service';
+import { MapStyleService } from './geo/map-style.service';
 import { Offer } from './offers/offer.entity';
 import { OffersController } from './offers/offers.controller';
 import { OffersService } from './offers/offers.service';
@@ -75,6 +76,7 @@ import { UsersController } from './users/users.controller';
     CompaniesService,
     DeliveriesService,
     GeoService,
+    MapStyleService,
     OffersService,
     StorageService,
     SettingsService,
