@@ -35,6 +35,11 @@ export class CompaniesService {
     });
   }
 
+  async update(id: string, dto: { name?: string; phone?: string }) {
+    await this.companies.update(id, dto);
+    return this.companies.findOneBy({ id });
+  }
+
   async setActive(id: string, active: boolean) {
     await this.companies.update(id, { active });
     return this.companies.findOneBy({ id });

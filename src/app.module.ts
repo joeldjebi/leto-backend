@@ -5,6 +5,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AddressesController } from './addresses/addresses.controller';
 import { SavedAddress } from './addresses/saved-address.entity';
+import { AdminController } from './admin/admin.controller';
+import { StatsService } from './admin/stats.service';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { AuthGuard } from './common/auth.guard';
@@ -22,6 +24,8 @@ import { OffersController } from './offers/offers.controller';
 import { OffersService } from './offers/offers.service';
 import { PricingController } from './pricing/pricing.controller';
 import { UploadsController } from './uploads/uploads.controller';
+import { Setting } from './settings/setting.entity';
+import { SettingsService } from './settings/settings.service';
 import { StorageService } from './storage/storage.service';
 import { TrackingGateway } from './tracking/tracking.gateway';
 import { User } from './users/user.entity';
@@ -37,11 +41,11 @@ import { UsersController } from './users/users.controller';
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress],
+      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting],
       // Pratique en dev : crée/maj les tables automatiquement. À remplacer par des migrations en prod.
       synchronize: true,
     }),
-    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress]),
+    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
@@ -50,6 +54,7 @@ import { UsersController } from './users/users.controller';
   ],
   controllers: [
     AddressesController,
+    AdminController,
     AuthController,
     CompaniesController,
     DeliveriesController,
@@ -66,6 +71,8 @@ import { UsersController } from './users/users.controller';
     GeoService,
     OffersService,
     StorageService,
+    SettingsService,
+    StatsService,
     TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

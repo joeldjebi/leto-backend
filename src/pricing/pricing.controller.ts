@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Type } from 'class-transformer';
 import {
@@ -11,21 +11,12 @@ import {
   IsOptional,
   ValidateNested,
 } from 'class-validator';
-import { absenceWaitMs } from '../deliveries/absence';
 import { MoreThan, Repository } from 'typeorm';
 import { haversineKm } from '../geo/communes';
 import { GeoService } from '../geo/geo.service';
 import { Role, User } from '../users/user.entity';
-import {
-  COD_FEE,
-  computePrice,
-  DeliverySpeed,
-  EXTRA_STOP_FEE,
-  MAX_STOPS,
-  SPEEDS,
-  VEHICLES,
-  VehicleType,
-} from './pricing';
+import { SettingsService } from '../settings/settings.service';
+import { computePrice, DeliverySpeed, MAX_STOPS, VehicleType } from './pricing';
 
 class QuoteStopDto {
   @IsLatitude() lat: number;
@@ -50,19 +41,16 @@ export const ONLINE_WINDOW_MS = 2 * 60 * 1000;
 
 @Controller('pricing')
 export class PricingController {
-  constructor(private geo: GeoService, @InjectRepository(User) private users: Repository<User>) {}
+  constructor(
+    private geo: GeoService,
+    private settings: SettingsService,
+    @InjectRepository(User) private users: Repository<User>,
+  ) {}
 
   /** Grille tarifaire (affichage) */
   @Get('grid')
   grid() {
-    return {
-      vehicles: VEHICLES,
-      speeds: SPEEDS,
-      codFee: COD_FEE,
-      extraStopFee: EXTRA_STOP_FEE,
-      maxStops: MAX_STOPS,
-      absenceWaitMin: absenceWaitMs() / 60000,
-    };
+    return this.settings.pricing;
   }
 
   /**
@@ -71,19 +59,23 @@ export class PricingController {
    */
   @Post('quote')
   async quote(@Body() dto: QuoteDto) {
+    const grid = this.settings.pricing;
+    if (dto.stops.length > grid.maxStops) throw new BadRequestException(`${grid.maxStops} adresses maximum par tournée`);
     const pickup = { lat: dto.pickupLat, lng: dto.pickupLng };
     const order = await this.geo.optimizeOrder(pickup, dto.stops);
     const ordered = order.map((i) => dto.stops[i]);
     const route = await this.geo.routeVia([pickup, ...ordered]);
     const codStops = ordered.filter((s) => s.cod).length;
-    const offers = (Object.keys(VEHICLES) as VehicleType[]).map((vehicle) => ({
+    const offers = (Object.keys(grid.vehicles) as VehicleType[])
+      .filter((vehicle) => grid.vehicles[vehicle].enabled)
+      .map((vehicle) => ({
       vehicle,
-      label: VEHICLES[vehicle].label,
-      description: VEHICLES[vehicle].description,
+      label: grid.vehicles[vehicle].label,
+      description: grid.vehicles[vehicle].description,
       prices: Object.fromEntries(
-        (Object.keys(SPEEDS) as DeliverySpeed[]).map((s) => [
+        (Object.keys(grid.speeds) as DeliverySpeed[]).map((s) => [
           s,
-          computePrice(route.distanceKm, vehicle, s, ordered.length, codStops),
+          computePrice(grid, route.distanceKm, vehicle, s, ordered.length, codStops),
         ]),
       ),
     }));
@@ -94,9 +86,9 @@ export class PricingController {
       points: route.points,
       legs: route.legs,
       offers,
-      speeds: SPEEDS,
-      codFee: COD_FEE,
-      extraStopFee: EXTRA_STOP_FEE,
+      speeds: grid.speeds,
+      codFee: grid.codFee,
+      extraStopFee: grid.extraStopFee,
     };
   }
 

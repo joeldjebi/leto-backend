@@ -2,7 +2,7 @@ import { Body, Controller, Get, Param, ParseBoolPipe, Patch, Post, Query } from 
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { PersonDto } from '../common/dto';
 import { Role } from '../users/user.entity';
-import { CreateCompanyDto } from './companies.dto';
+import { CreateCompanyDto, UpdateCompanyDto } from './companies.dto';
 import { CompaniesService } from './companies.service';
 
 @Controller('companies')
@@ -20,6 +20,12 @@ export class CompaniesController {
   @Roles(Role.SUPER_ADMIN)
   create(@Body() dto: CreateCompanyDto) {
     return this.service.create(dto);
+  }
+
+  @Patch(':id')
+  @Roles(Role.SUPER_ADMIN)
+  update(@Param('id') id: string, @Body() dto: UpdateCompanyDto) {
+    return this.service.update(id, dto);
   }
 
   @Patch(':id/active')

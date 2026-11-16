@@ -95,6 +95,14 @@ export class Delivery {
   @Column({ type: 'timestamptz', nullable: true })
   deliveredAt: Date | null;
 
+  /** Annulation (par le client, ou par le SA avec un motif) */
+  @Column({ type: 'timestamptz', nullable: true })
+  cancelledAt: Date | null;
+  @Column({ type: 'text', nullable: true })
+  cancelReason: string | null;
+  @Column({ type: 'text', nullable: true })
+  cancelledBy: string | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
   @UpdateDateColumn({ type: 'timestamptz' })

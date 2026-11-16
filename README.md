@@ -44,7 +44,11 @@ La livraison reste due par l'expéditeur.
 
 L'acceptation est atomique : si deux livreurs acceptent en même temps, un seul obtient la course.
 
-## Tarifs (`src/pricing/pricing.ts`)
+## Tarifs et règles (modifiables par le SA)
+
+Le Super Admin modifie la grille depuis le back-office (`GET/PUT /admin/settings`, `POST /admin/settings/reset`). Il peut changer les prix, activer ou désactiver une offre, et régler les coefficients de délai, les frais, le nombre maximum d'arrêts et l'attente avant absence. Les valeurs de `src/pricing/pricing.ts` servent de valeurs par défaut.
+
+### Valeurs par défaut
 
 Prix = max(minimum, base + prix/km × distance) × facteur délai (+ 250 F si paiement à la livraison), arrondi aux 50 F supérieurs. La distance est celle de l'itinéraire réel, et le prix est toujours recalculé par le serveur.
 
@@ -112,6 +116,11 @@ Les photos (adresses, preuves d'échec) sont stockées sur **Wasabi** (compatibl
 | GET/POST | `/companies/me/drivers` | COMPANY |
 | PATCH | `/companies/me/drivers/:id/active?value=` | COMPANY |
 | GET | `/deliveries` | SUPER_ADMIN |
+| GET | `/admin/stats?days=14` | SUPER_ADMIN, COMPANY (sa propre entreprise) |
+| GET/PUT | `/admin/settings` · POST `/admin/settings/reset` | SUPER_ADMIN |
+| POST | `/deliveries/:id/admin-cancel` `{ reason }` | SUPER_ADMIN |
+| POST | `/deliveries/:id/stops/:stopId/resolve` `{ decision: UPHELD|REJECTED, note? }` | SUPER_ADMIN, COMPANY |
+| PATCH | `/companies/:id` `{ name?, phone? }` | SUPER_ADMIN |
 | GET/POST | `/companies` | SUPER_ADMIN |
 | PATCH | `/companies/:id/active?value=` | SUPER_ADMIN |
 | GET | `/users?role=` | SUPER_ADMIN |

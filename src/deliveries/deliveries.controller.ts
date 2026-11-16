@@ -1,12 +1,22 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { Role } from '../users/user.entity';
-import { ConfirmStopDto, CreateDeliveryDto, DisputeStopDto, FailStopDto } from './deliveries.dto';
+import { InjectRepository } from '@nestjs/typeorm';
+import { Repository } from 'typeorm';
+import { User } from '../users/user.entity';
+import { AdminCancelDto, ConfirmStopDto, CreateDeliveryDto, DisputeStopDto, FailStopDto, ResolveDisputeDto } from './deliveries.dto';
 import { DeliveriesService } from './deliveries.service';
 
 @Controller('deliveries')
 export class DeliveriesController {
-  constructor(private service: DeliveriesService) {}
+  constructor(
+    private service: DeliveriesService,
+    @InjectRepository(User) private users: Repository<User>,
+  ) {}
+
+  private async nameOf(user: AuthUser) {
+    return (await this.users.findOneBy({ id: user.sub }))?.name ?? user.role;
+  }
 
   // ----- Client (particulier ou boutique) -----
   @Post()
@@ -106,6 +116,23 @@ export class DeliveriesController {
     @Param('stopId', ParseUUIDPipe) stopId: string,
   ) {
     return this.service.markCodRemitted(user.companyId, id, stopId);
+  }
+
+  @Post(':id/stops/:stopId/resolve')
+  @Roles(Role.SUPER_ADMIN, Role.COMPANY)
+  async resolve(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('stopId', ParseUUIDPipe) stopId: string,
+    @Body() dto: ResolveDisputeDto,
+  ) {
+    return this.service.resolveDispute(user, await this.nameOf(user), id, stopId, dto.decision, dto.note);
+  }
+
+  @Post(':id/admin-cancel')
+  @Roles(Role.SUPER_ADMIN)
+  async adminCancel(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AdminCancelDto) {
+    return this.service.adminCancel(id, dto.reason, await this.nameOf(user));
   }
 
   @Get()

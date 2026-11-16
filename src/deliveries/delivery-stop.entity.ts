@@ -7,6 +7,12 @@ export enum StopStatus {
   FAILED = 'FAILED', // destinataire absent ou refus
 }
 
+/** Décision sur une contestation : donnée en faveur de l'expéditeur (UPHELD) ou du livreur (REJECTED) */
+export enum DisputeDecision {
+  UPHELD = 'UPHELD',
+  REJECTED = 'REJECTED',
+}
+
 export enum FailureReason {
   ABSENT = 'ABSENT', // personne sur place / injoignable (attente obligatoire)
   REFUSED = 'REFUSED', // le destinataire refuse le colis
@@ -87,4 +93,14 @@ export class DeliveryStop {
   disputedAt: Date | null;
   @Column({ type: 'text', nullable: true })
   disputeNote: string | null;
+
+  /** Arbitrage du litige (entreprise ou SA) */
+  @Column({ type: 'enum', enum: DisputeDecision, nullable: true })
+  disputeDecision: DisputeDecision | null;
+  @Column({ type: 'text', nullable: true })
+  disputeResolutionNote: string | null;
+  @Column({ type: 'text', nullable: true })
+  disputeResolvedBy: string | null;
+  @Column({ type: 'timestamptz', nullable: true })
+  disputeResolvedAt: Date | null;
 }

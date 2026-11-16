@@ -19,7 +19,7 @@ import {
 } from 'class-validator';
 import { PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
 import { DeliverySpeed, MAX_STOPS, VehicleType } from '../pricing/pricing';
-import { FailureReason } from './delivery-stop.entity';
+import { DisputeDecision, FailureReason } from './delivery-stop.entity';
 
 export const PHOTO_REGEX = /^\/uploads\/[\w.-]+$/;
 
@@ -76,6 +76,15 @@ export class FailStopDto {
   /** Photo obligatoire du lieu (porte, portail…) */
   @Matches(PHOTO_REGEX, { message: 'Photo du lieu obligatoire' }) photoUrl: string;
   @IsOptional() @IsString() @MaxLength(300) note?: string;
+}
+
+export class ResolveDisputeDto {
+  @IsEnum(DisputeDecision) decision: DisputeDecision;
+  @IsOptional() @IsString() @MaxLength(500) note?: string;
+}
+
+export class AdminCancelDto {
+  @IsString() @IsNotEmpty() @MaxLength(300) reason: string;
 }
 
 export class DisputeStopDto {

@@ -9,10 +9,11 @@ import { GeoService } from '../geo/geo.service';
 import { Offer, OfferStatus } from '../offers/offer.entity';
 import { computePrice, DeliverySpeed, VehicleType } from '../pricing/pricing';
 import { TrackingGateway } from '../tracking/tracking.gateway';
-import { User } from '../users/user.entity';
-import { absenceWaitMs, FAIL_RADIUS_M, LOCATION_MAX_AGE_MS } from './absence';
+import { Role, User } from '../users/user.entity';
+import { SettingsService } from '../settings/settings.service';
+import { FAIL_RADIUS_M, LOCATION_MAX_AGE_MS } from './absence';
 import { CreateDeliveryDto, FailStopDto } from './deliveries.dto';
-import { DeliveryStop, FailureReason, StopStatus } from './delivery-stop.entity';
+import { DeliveryStop, DisputeDecision, FailureReason, StopStatus } from './delivery-stop.entity';
 import { Delivery, DeliveryStatus } from './delivery.entity';
 
 @Injectable()
@@ -26,6 +27,7 @@ export class DeliveriesService {
     @InjectRepository(SavedAddress) private addresses: Repository<SavedAddress>,
     private tracking: TrackingGateway,
     private geo: GeoService,
+    private settings: SettingsService,
   ) {}
 
   /** Notifie en temps réel puis renvoie la course */
@@ -50,8 +52,11 @@ export class DeliveriesService {
   // ---------- Client ----------
 
   async create(clientId: string, dto: CreateDeliveryDto) {
+    const grid = this.settings.pricing;
     const vehicleType = dto.vehicleType ?? VehicleType.MOTO;
     const speed = dto.speed ?? DeliverySpeed.STANDARD;
+    if (!grid.vehicles[vehicleType].enabled) throw new BadRequestException('Cette offre n’est pas disponible');
+    if (dto.stops.length > grid.maxStops) throw new BadRequestException(`${grid.maxStops} adresses maximum par tournée`);
     const pickup = { lat: dto.pickupLat, lng: dto.pickupLng };
 
     // Ordre de passage optimisé, puis itinéraire complet (le prix est toujours calculé ici)
@@ -69,7 +74,7 @@ export class DeliveriesService {
         pickupCommune: nearestCommune(dto.pickupLat, dto.pickupLng),
         distanceKm: Math.round(route.distanceKm * 10) / 10,
         durationMin: route.durationMin,
-        price: computePrice(route.distanceKm, vehicleType, speed, ordered.length, codStops),
+        price: computePrice(grid, route.distanceKm, vehicleType, speed, ordered.length, codStops),
         stops: ordered.map((s, position) =>
           this.stops.create({
             ...s,
@@ -116,7 +121,10 @@ export class DeliveriesService {
   }
 
   async cancel(clientId: string, id: string) {
-    const res = await this.repo.update({ id, clientId, status: DeliveryStatus.PENDING }, { status: DeliveryStatus.CANCELLED });
+    const res = await this.repo.update(
+      { id, clientId, status: DeliveryStatus.PENDING },
+      { status: DeliveryStatus.CANCELLED, cancelledAt: new Date(), cancelledBy: 'Client' },
+    );
     if (!res.affected) throw new BadRequestException('Seule une course en attente peut être annulée');
     await this.closeOffers(id);
     return this.notify(await this.findOne(id, true));
@@ -202,8 +210,9 @@ export class DeliveriesService {
     if (dto.reason === FailureReason.ABSENT) {
       if (!stop.arrivedAt) throw new BadRequestException('Arrivée non détectée : approchez-vous de l’adresse');
       const waitedMs = Date.now() - stop.arrivedAt.getTime();
-      if (waitedMs < absenceWaitMs()) {
-        const left = Math.ceil((absenceWaitMs() - waitedMs) / 60000);
+      const waitMs = this.settings.pricing.absenceWaitMin * 60_000;
+      if (waitedMs < waitMs) {
+        const left = Math.ceil((waitMs - waitedMs) / 60000);
         throw new BadRequestException(`Patientez encore ${left} min et essayez d’appeler le destinataire`);
       }
     }
@@ -262,6 +271,36 @@ export class DeliveriesService {
       })
       .execute();
     if (!res.affected) throw new BadRequestException('Rien à reverser pour cet arrêt');
+    return this.notify(await this.findOne(id));
+  }
+
+  /** Le SA annule une course non terminée (motif obligatoire) ; le livreur et le client sont prévenus */
+  async adminCancel(id: string, reason: string, by: string) {
+    const d = await this.findOne(id);
+    if ([DeliveryStatus.DELIVERED, DeliveryStatus.CANCELLED].includes(d.status)) {
+      throw new BadRequestException('Course déjà terminée ou annulée');
+    }
+    await this.repo.update(id, { status: DeliveryStatus.CANCELLED, cancelledAt: new Date(), cancelReason: reason, cancelledBy: by });
+    await this.closeOffers(id);
+    this.tracking.emitToUser(d.clientId, 'delivery:cancelled', { deliveryId: id, reason });
+    if (d.driverId) this.tracking.emitToUser(d.driverId, 'delivery:cancelled', { deliveryId: id, reason });
+    return this.notify(await this.findOne(id));
+  }
+
+  /** Arbitrage d'une contestation (SA, ou gérant de l'entreprise du livreur) */
+  async resolveDispute(user: AuthUser, by: string, id: string, stopId: string, decision: DisputeDecision, note?: string) {
+    const d = await this.findOne(id);
+    if (user.role === Role.COMPANY && d.companyId !== user.companyId) throw new NotFoundException('Course introuvable');
+    const stop = d.stops.find((s) => s.id === stopId);
+    if (!stop?.disputedAt) throw new BadRequestException('Aucune contestation sur cet arrêt');
+    if (stop.disputeResolvedAt) throw new BadRequestException('Litige déjà tranché');
+    await this.stops.update(stopId, {
+      disputeDecision: decision,
+      disputeResolutionNote: note ?? null,
+      disputeResolvedBy: by,
+      disputeResolvedAt: new Date(),
+    });
+    this.tracking.emitToUser(d.clientId, 'dispute:resolved', { deliveryId: id, stopId, decision });
     return this.notify(await this.findOne(id));
   }
 
