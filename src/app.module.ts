@@ -20,6 +20,7 @@ import { CompaniesController } from './companies/companies.controller';
 import { CompaniesService } from './companies/companies.service';
 import { Company } from './companies/company.entity';
 import { DeliveriesController } from './deliveries/deliveries.controller';
+import { TrackController } from './deliveries/track.controller';
 import { DeliveriesService } from './deliveries/deliveries.service';
 import { DeliveryStop } from './deliveries/delivery-stop.entity';
 import { Delivery } from './deliveries/delivery.entity';
@@ -70,6 +71,7 @@ import { UsersController } from './users/users.controller';
     GeoController,
     OffersController,
     PricingController,
+    TrackController,
     RemittancesController,
     UploadsController,
     UsersController,

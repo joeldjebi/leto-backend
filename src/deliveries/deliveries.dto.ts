@@ -3,6 +3,8 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  ValidateIf,
+  IsUUID,
   IsBoolean,
   IsEnum,
   IsInt,
@@ -56,6 +58,9 @@ export class CreateDeliveryDto {
   @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) pickupPhone: string;
   @IsOptional() @Matches(PHOTO_REGEX) pickupPhotoUrl?: string;
 
+  /** Entreprise choisie par le client (sa grille tarifaire, ses livreurs seulement) ; absent = toutes */
+  @IsOptional() @IsUUID() companyId?: string;
+
   // ----- Arrêts (1 à MAX_STOPS) -----
   @IsArray()
   @ArrayMinSize(1, { message: 'Ajoutez au moins une adresse de livraison' })
@@ -86,6 +91,24 @@ export class ResolveDisputeDto {
 
 export class AdminCancelDto {
   @IsString() @IsNotEmpty() @MaxLength(300) reason: string;
+}
+
+/** Course créée par une entreprise (commande reçue par téléphone, WhatsApp…) */
+export class CompanyOrderDto extends CreateDeliveryDto {
+  @IsString() @IsNotEmpty({ message: 'Nom du client obligatoire' }) @MaxLength(100) clientName: string;
+  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) clientPhone: string;
+  /** Livreur à qui affecter la course (sinon visible par tous les livreurs de l'entreprise) */
+  @IsOptional() @IsUUID() driverId?: string;
+  /** Prix fixé à la main (sinon grille de l'entreprise) */
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(1_000_000) price?: number;
+}
+
+export class AssignDto {
+  @ValidateIf((o) => o.driverId !== null) @IsUUID() driverId: string | null;
+}
+
+export class DeclineAssignmentDto {
+  @IsOptional() @IsString() @MaxLength(300) reason?: string;
 }
 
 export class CancelStopDto {

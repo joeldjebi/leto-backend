@@ -9,9 +9,11 @@ import {
   IsLatitude,
   IsLongitude,
   IsOptional,
+  IsUUID,
   ValidateNested,
 } from 'class-validator';
 import { MoreThan, Repository } from 'typeorm';
+import { Company } from '../companies/company.entity';
 import { haversineKm } from '../geo/communes';
 import { GeoService } from '../geo/geo.service';
 import { Role, User } from '../users/user.entity';
@@ -26,6 +28,8 @@ class QuoteStopDto {
 }
 
 class QuoteDto {
+  /** Entreprise choisie (sa grille tarifaire) */
+  @IsOptional() @IsUUID() companyId?: string;
   @IsLatitude() pickupLat: number;
   @IsLongitude() pickupLng: number;
   @IsArray()
@@ -45,6 +49,7 @@ export class PricingController {
     private geo: GeoService,
     private settings: SettingsService,
     @InjectRepository(User) private users: Repository<User>,
+    @InjectRepository(Company) private companies: Repository<Company>,
   ) {}
 
   /** Grille tarifaire (affichage) */
@@ -59,7 +64,8 @@ export class PricingController {
    */
   @Post('quote')
   async quote(@Body() dto: QuoteDto) {
-    const grid = this.settings.pricing;
+    const company = dto.companyId ? await this.companies.findOneBy({ id: dto.companyId }) : null;
+    const grid = this.settings.gridFor(company);
     if (dto.stops.length > grid.maxStops) throw new BadRequestException(`${grid.maxStops} adresses maximum par tournée`);
     const pickup = { lat: dto.pickupLat, lng: dto.pickupLng };
     const order = await this.geo.optimizeOrder(pickup, dto.stops);

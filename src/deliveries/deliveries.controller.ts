@@ -4,7 +4,7 @@ import { Role } from '../users/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/user.entity';
-import { AdminCancelDto, AnswerCancelDto, CancelRequestDto, CancelStopDto, ConfirmStopDto, CreateDeliveryDto, DisputeStopDto, FailStopDto, ResolveDisputeDto, ReturnDto } from './deliveries.dto';
+import { AdminCancelDto, AnswerCancelDto, AssignDto, CancelRequestDto, CancelStopDto, CompanyOrderDto, ConfirmStopDto, CreateDeliveryDto, DeclineAssignmentDto, DisputeStopDto, FailStopDto, ResolveDisputeDto, ReturnDto } from './deliveries.dto';
 import { DeliveriesService } from './deliveries.service';
 
 @Controller('deliveries')
@@ -22,7 +22,7 @@ export class DeliveriesController {
   @Post()
   @Roles(Role.CLIENT)
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateDeliveryDto) {
-    return this.service.create(user.sub, dto);
+    return this.service.create(user.sub, dto, { companyId: dto.companyId });
   }
 
   @Get('mine')
@@ -85,8 +85,32 @@ export class DeliveriesController {
   // ----- Livreur -----
   @Get('available')
   @Roles(Role.DRIVER)
-  available() {
-    return this.service.available();
+  available(@CurrentUser() user: AuthUser) {
+    return this.service.available(user);
+  }
+
+  @Post(':id/decline-assignment')
+  @Roles(Role.DRIVER)
+  declineAssignment(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: DeclineAssignmentDto) {
+    return this.service.declineAssignment(user.sub, id, dto.reason);
+  }
+
+  @Post(':id/open-to-all')
+  @Roles(Role.CLIENT)
+  openToAll(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.openToAll(user.sub, id);
+  }
+
+  @Post('company-order')
+  @Roles(Role.COMPANY)
+  companyOrder(@CurrentUser() user: AuthUser, @Body() dto: CompanyOrderDto) {
+    return this.service.createForCompany(user.companyId, dto);
+  }
+
+  @Post(':id/assign')
+  @Roles(Role.COMPANY)
+  assign(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AssignDto) {
+    return this.service.assign(user.companyId, id, dto.driverId ?? null);
   }
 
   @Get('driver')

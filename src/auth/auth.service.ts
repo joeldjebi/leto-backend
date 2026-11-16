@@ -68,7 +68,18 @@ export class AuthService implements OnApplicationBootstrap {
 
   /** Inscription publique : uniquement des clients (particuliers / boutiques) */
   async register(dto: RegisterDto) {
-    if (await this.users.existsBy({ phone: dto.phone })) {
+    const existing = await this.users.findOneBy({ phone: dto.phone });
+    // Compte créé par une entreprise (commande par téléphone) : le client l'active en s'inscrivant
+    if (existing?.invited && existing.role === Role.CLIENT) {
+      await this.users.update(existing.id, {
+        name: dto.name,
+        passwordHash: await bcrypt.hash(dto.password, 10),
+        accountType: dto.accountType,
+        invited: false,
+      });
+      return this.session(await this.users.findOneBy({ id: existing.id }));
+    }
+    if (existing) {
       throw new ConflictException('Ce numéro est déjà utilisé');
     }
     const user = await this.users.save({

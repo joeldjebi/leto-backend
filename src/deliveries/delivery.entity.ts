@@ -114,6 +114,22 @@ export class Delivery {
   @Column({ type: 'text', nullable: true })
   cancelledBy: string | null;
 
+  /** Course adressée à une entreprise : seuls ses livreurs la voient (null = toutes) */
+  @Column({ type: 'uuid', nullable: true })
+  targetCompanyId: string | null;
+  /** CLIENT (commandée dans l'app) ou COMPANY (créée par l'entreprise) */
+  @Column({ type: 'varchar', length: 10, default: 'CLIENT' })
+  source: 'CLIENT' | 'COMPANY';
+  /** Livreur à qui l'entreprise a affecté la course (il accepte ou refuse) */
+  @Column({ type: 'uuid', nullable: true })
+  assignedDriverId: string | null;
+  /** Motif du dernier refus d'affectation */
+  @Column({ type: 'text', nullable: true })
+  assignmentNote: string | null;
+  /** Jeton du lien de suivi public */
+  @Column({ type: 'varchar', length: 32, nullable: true, unique: true })
+  trackingToken: string | null;
+
   /** Frais de déplacement dus par l'expéditeur (course annulée alors que le livreur était en route) */
   @Column({ type: 'int', nullable: true })
   cancellationFee: number | null;

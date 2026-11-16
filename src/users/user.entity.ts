@@ -47,6 +47,10 @@ export class User {
   @Column({ default: true })
   active: boolean;
 
+  /** Client créé par une entreprise (commande par téléphone) : il active son compte en s'inscrivant */
+  @Column({ default: false })
+  invited: boolean;
+
   /** Dernière position GPS connue (livreurs) — mise à jour en temps réel */
   @Column({ type: 'double precision', nullable: true })
   lastLat: number | null;

@@ -29,6 +29,8 @@ export class OffersService {
   async propose(user: AuthUser, deliveryId: string, price: number) {
     const d = await this.deliveries.findOneBy({ id: deliveryId });
     if (!d || d.status !== DeliveryStatus.PENDING) throw new BadRequestException('Cette course n’est plus disponible');
+    if (d.targetCompanyId && d.targetCompanyId !== user.companyId) throw new BadRequestException('Course réservée à une autre entreprise');
+    if (d.assignedDriverId && d.assignedDriverId !== user.sub) throw new BadRequestException('Course affectée à un autre livreur');
     if (price <= d.price) {
       throw new BadRequestException(`Proposez plus de ${d.price} F, ou acceptez la course au prix affiché`);
     }

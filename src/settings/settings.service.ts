@@ -46,6 +46,42 @@ export class SettingsService implements OnModuleInit {
     return this.info;
   }
 
+  /** Grille d'une entreprise : ses prix (engins, délais, supplément arrêt, frais d'encaissement) sur les règles LETO */
+  gridFor(company?: { pricing?: Record<string, unknown> | null } | null): PricingGrid {
+    if (!company?.pricing) return this.grid;
+    return this.merge(this.priceOnly(company.pricing as Partial<PricingGrid>), this.grid);
+  }
+
+  /** Valide et nettoie une grille d'entreprise (seuls les prix sont gardés) */
+  companyGrid(input: Partial<PricingGrid>) {
+    const clean = this.priceOnly(input);
+    const merged = this.merge(clean, this.grid);
+    this.validate(merged);
+    return {
+      vehicles: Object.fromEntries(
+        Object.entries(merged.vehicles).map(([k, v]) => [k, { base: v.base, perKm: v.perKm, min: v.min, enabled: v.enabled }]),
+      ),
+      speeds: Object.fromEntries(Object.entries(merged.speeds).map(([k, v]) => [k, { factor: v.factor }])),
+      extraStopFee: merged.extraStopFee,
+      codFee: merged.codFee,
+    };
+  }
+
+  private priceOnly(input: Partial<PricingGrid>): Partial<PricingGrid> {
+    const out: Partial<PricingGrid> = {};
+    if (input.vehicles) {
+      out.vehicles = Object.fromEntries(
+        Object.entries(input.vehicles).map(([k, v]) => [k, { base: v?.base, perKm: v?.perKm, min: v?.min, enabled: v?.enabled }]),
+      ) as PricingGrid['vehicles'];
+    }
+    if (input.speeds) {
+      out.speeds = Object.fromEntries(Object.entries(input.speeds).map(([k, v]) => [k, { factor: v?.factor }])) as PricingGrid['speeds'];
+    }
+    if (input.extraStopFee !== undefined) out.extraStopFee = input.extraStopFee;
+    if (input.codFee !== undefined) out.codFee = input.codFee;
+    return out;
+  }
+
   /** Fusionne une saisie partielle sur une base (seules les clés connues sont gardées) */
   private merge(input: Partial<PricingGrid> = {}, base: PricingGrid = defaultGrid()): PricingGrid {
     const out = structuredClone(base);

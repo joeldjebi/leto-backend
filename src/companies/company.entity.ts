@@ -32,6 +32,10 @@ export class Company {
   @Column({ type: 'double precision', default: 0 })
   driverSharePercent: number;
 
+  /** Grille tarifaire propre à l'entreprise (prix seulement ; null = grille LETO) */
+  @Column({ type: 'jsonb', nullable: true })
+  pricing: Record<string, unknown> | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }

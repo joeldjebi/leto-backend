@@ -1,10 +1,12 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { randomInt } from 'crypto';
+import * as bcrypt from 'bcryptjs';
+import { randomBytes, randomInt } from 'crypto';
 import { DataSource, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { SavedAddress } from '../addresses/saved-address.entity';
 import { BillingService } from '../billing/billing.service';
 import { AuthUser } from '../common/decorators';
+import { Company } from '../companies/company.entity';
 import { haversineKm, nearestCommune } from '../geo/communes';
 import { GeoService } from '../geo/geo.service';
 import { Offer, OfferStatus } from '../offers/offer.entity';
@@ -13,7 +15,7 @@ import { TrackingGateway } from '../tracking/tracking.gateway';
 import { Role, User } from '../users/user.entity';
 import { SettingsService } from '../settings/settings.service';
 import { FAIL_RADIUS_M, LOCATION_MAX_AGE_MS } from './absence';
-import { CreateDeliveryDto, FailStopDto } from './deliveries.dto';
+import { CompanyOrderDto, CreateDeliveryDto, FailStopDto } from './deliveries.dto';
 import { DeliveryStop, DisputeDecision, FailureReason, StopStatus } from './delivery-stop.entity';
 import { Delivery, DeliveryStatus } from './delivery.entity';
 
@@ -29,6 +31,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     @InjectRepository(Offer) private offers: Repository<Offer>,
     @InjectRepository(User) private users: Repository<User>,
     @InjectRepository(SavedAddress) private addresses: Repository<SavedAddress>,
+    @InjectRepository(Company) private companies: Repository<Company>,
     private tracking: TrackingGateway,
     private geo: GeoService,
     private settings: SettingsService,
@@ -56,8 +59,22 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
 
   // ---------- Client ----------
 
-  async create(clientId: string, dto: CreateDeliveryDto) {
-    const grid = this.settings.pricing;
+  /**
+   * Nouvelle course. [opts.companyId] : adressée à une entreprise (sa grille tarifaire, ses livreurs seulement).
+   * [opts.source] COMPANY : créée par l'entreprise, éventuellement affectée à un de ses livreurs.
+   */
+  async create(
+    clientId: string,
+    dto: CreateDeliveryDto,
+    opts: { companyId?: string | null; source?: 'CLIENT' | 'COMPANY'; assignedDriverId?: string | null; priceOverride?: number } = {},
+  ) {
+    let company: Company | null = null;
+    if (opts.companyId) {
+      company = await this.companies.findOneBy({ id: opts.companyId });
+      const subscribed = !!company?.subscriptionEndsAt && company.subscriptionEndsAt.getTime() > Date.now();
+      if (!company?.active || !subscribed) throw new BadRequestException('Cette entreprise ne prend pas de commandes pour le moment');
+    }
+    const grid = this.settings.gridFor(company);
     const vehicleType = dto.vehicleType ?? VehicleType.MOTO;
     const speed = dto.speed ?? DeliverySpeed.STANDARD;
     if (!grid.vehicles[vehicleType].enabled) throw new BadRequestException('Cette offre n’est pas disponible');
@@ -73,17 +90,24 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     const route = await this.geo.routeVia([pickup, ...ordered]);
     const codStops = ordered.filter((s) => (s.codAmount ?? 0) > 0).length;
 
+    // companyId du formulaire = entreprise choisie (cible), à ne pas confondre avec l'entreprise du livreur
+    const { companyId: _target, ...fields } = dto;
+    void _target;
     const delivery = await this.repo.save(
       this.repo.create({
-        ...dto,
+        ...fields,
         clientId,
         vehicleType,
         speed,
         pickupCommune: nearestCommune(dto.pickupLat, dto.pickupLng),
         distanceKm: Math.round(route.distanceKm * 10) / 10,
         durationMin: route.durationMin,
-        price: computePrice(grid, route.distanceKm, vehicleType, speed, ordered.length, codStops),
+        price: opts.priceOverride ?? computePrice(grid, route.distanceKm, vehicleType, speed, ordered.length, codStops),
         returnCode: randomInt(0, 10000).toString().padStart(4, '0'),
+        trackingToken: randomBytes(16).toString('hex'),
+        targetCompanyId: company?.id ?? null,
+        source: opts.source ?? 'CLIENT',
+        assignedDriverId: opts.assignedDriverId ?? null,
         stops: ordered.map((s, position) =>
           this.stops.create({
             ...s,
@@ -96,7 +120,125 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       }),
     );
     await this.saveToAddressBook(clientId, ordered);
+    if (opts.assignedDriverId) {
+      this.tracking.emitToUser(opts.assignedDriverId, 'delivery:assigned', { deliveryId: delivery.id });
+    }
+    if (company) this.tracking.emitToCompany(company.id, 'delivery:new', { deliveryId: delivery.id });
     return this.notify(await this.findOne(delivery.id, true));
+  }
+
+  /** L'entreprise crée une course (commande reçue par téléphone…) et peut l'affecter à un de ses livreurs */
+  async createForCompany(companyId: string, dto: CompanyOrderDto) {
+    if (dto.driverId) await this.companyDriver(companyId, dto.driverId);
+    const client = await this.findOrInviteClient(dto.clientName, dto.clientPhone);
+    const { clientName, clientPhone, driverId, price, ...order } = dto;
+    void clientName; void clientPhone;
+    return this.create(client.id, { ...order, pickupPhone: order.pickupPhone || dto.clientPhone, pickupContactName: order.pickupContactName || dto.clientName }, {
+      companyId,
+      source: 'COMPANY',
+      assignedDriverId: driverId ?? null,
+      priceOverride: price,
+    });
+  }
+
+  /** Client existant (même numéro) ou compte « invité » qu'il activera en s'inscrivant dans l'app */
+  private async findOrInviteClient(name: string, phone: string) {
+    const existing = await this.users.findOneBy({ phone });
+    if (existing) {
+      if (existing.role !== Role.CLIENT) throw new BadRequestException('Ce numéro appartient à un compte livreur ou entreprise');
+      return existing;
+    }
+    return this.users.save(
+      this.users.create({ name, phone, role: Role.CLIENT, invited: true, passwordHash: await bcrypt.hash(randomBytes(24).toString('hex'), 10) }),
+    );
+  }
+
+  private async companyDriver(companyId: string, driverId: string) {
+    const driver = await this.users.findOneBy({ id: driverId, companyId, role: Role.DRIVER });
+    if (!driver) throw new BadRequestException('Livreur introuvable dans votre entreprise');
+    if (!driver.active) throw new BadRequestException('Ce livreur est bloqué');
+    return driver;
+  }
+
+  /** Affecter (ou retirer l'affectation, driverId null) une course en attente de l'entreprise */
+  async assign(companyId: string, id: string, driverId: string | null) {
+    const d = await this.findOne(id);
+    if (d.targetCompanyId !== companyId) throw new NotFoundException('Course introuvable');
+    if (d.status !== DeliveryStatus.PENDING) throw new BadRequestException('Seule une course en attente peut être affectée');
+    if (driverId) await this.companyDriver(companyId, driverId);
+    const previous = d.assignedDriverId;
+    await this.repo.update(id, { assignedDriverId: driverId, assignmentNote: null });
+    if (previous && previous !== driverId) this.tracking.emitToUser(previous, 'delivery:unassigned', { deliveryId: id });
+    if (driverId) this.tracking.emitToUser(driverId, 'delivery:assigned', { deliveryId: id });
+    return this.notify(await this.findOne(id, true));
+  }
+
+  /** Le livreur refuse la course que son entreprise lui a affectée */
+  async declineAssignment(driverId: string, id: string, reason?: string) {
+    const d = await this.findOne(id);
+    if (d.assignedDriverId !== driverId || d.status !== DeliveryStatus.PENDING) throw new BadRequestException('Aucune affectation à refuser');
+    await this.repo.update(id, { assignedDriverId: null, assignmentNote: reason ?? 'Refusée par le livreur' });
+    if (d.targetCompanyId) {
+      const driver = await this.users.findOneBy({ id: driverId });
+      this.tracking.emitToCompany(d.targetCompanyId, 'delivery:assignment-declined', { deliveryId: id, driver: driver?.name, reason });
+    }
+    return this.notify(await this.findOne(id));
+  }
+
+  /** Course adressée à une entreprise restée sans réponse : le client l'ouvre à toutes les entreprises */
+  async openToAll(clientId: string, id: string) {
+    const d = await this.oneForClient(clientId, id);
+    if (d.status !== DeliveryStatus.PENDING || !d.targetCompanyId || d.source !== 'CLIENT') {
+      throw new BadRequestException('Cette course est déjà ouverte à tous les livreurs');
+    }
+    await this.repo.update(id, { targetCompanyId: null, assignedDriverId: null });
+    return this.notify(await this.findOne(id, true));
+  }
+
+  /** Lien de suivi public : informations sans données personnelles sensibles (ni codes, ni numéros des destinataires) */
+  async publicTracking(token: string) {
+    if (!/^[0-9a-f]{32}$/.test(token)) throw new NotFoundException('Lien de suivi invalide');
+    const d = await this.query().where('d.trackingToken = :token', { token }).getOne();
+    if (!d) throw new NotFoundException('Lien de suivi invalide');
+    const live = d.driver?.lastLocationAt && Date.now() - d.driver.lastLocationAt.getTime() < 2 * 60_000;
+    const active = d.status === DeliveryStatus.ACCEPTED || d.status === DeliveryStatus.PICKED_UP;
+    const next = d.status === DeliveryStatus.PICKED_UP ? d.stops.find((s) => s.status === StopStatus.PENDING) : null;
+    const target = d.status === DeliveryStatus.ACCEPTED ? { lat: d.pickupLat, lng: d.pickupLng } : next ? { lat: next.lat, lng: next.lng } : null;
+    const etaMin =
+      active && live && target && d.driver.lastLat != null
+        ? Math.max(1, Math.ceil(((haversineKm(d.driver.lastLat, d.driver.lastLng, target.lat, target.lng) * 1.35) / 20) * 60))
+        : null;
+    return {
+      status: d.status,
+      createdAt: d.createdAt,
+      acceptedAt: d.acceptedAt,
+      pickedUpAt: d.pickedUpAt,
+      deliveredAt: d.deliveredAt,
+      cancelledAt: d.cancelledAt,
+      vehicleType: d.vehicleType,
+      sender: d.pickupContactName ?? d.client?.name ?? null,
+      pickup: { address: d.pickupAddress, commune: d.pickupCommune, lat: d.pickupLat, lng: d.pickupLng },
+      stops: d.stops.map((s) => ({
+        position: s.position,
+        recipient: s.recipientName.split(' ')[0],
+        address: s.address,
+        commune: s.commune,
+        lat: s.lat,
+        lng: s.lng,
+        status: s.status,
+        deliveredAt: s.deliveredAt,
+      })),
+      company: d.company ? { name: d.company.name, phone: d.company.phone } : null,
+      driver: d.driver
+        ? {
+            name: d.driver.name,
+            phone: active ? d.driver.phone : null,
+            position: active && live && d.driver.lastLat != null ? { lat: d.driver.lastLat, lng: d.driver.lastLng, at: d.driver.lastLocationAt } : null,
+          }
+        : null,
+      etaMin,
+      nextStop: next ? next.position : null,
+    };
   }
 
   /** Carnet d'adresses : chaque destinataire est mémorisé (mis à jour par numéro de téléphone) */
@@ -287,9 +429,11 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
   // ---------- Livreur ----------
 
   /** Courses en attente (sans les numéros des destinataires tant que la course n'est pas acceptée) */
-  async available() {
+  async available(user: AuthUser) {
     const list = await this.query()
       .where('d.status = :s', { s: DeliveryStatus.PENDING })
+      .andWhere('(d.targetCompanyId IS NULL OR d.targetCompanyId = :companyId)', { companyId: user.companyId })
+      .andWhere('(d.assignedDriverId IS NULL OR d.assignedDriverId = :me)', { me: user.sub })
       .orderBy('d.createdAt', 'ASC')
       .addOrderBy('stop.position', 'ASC')
       .getMany();
@@ -312,6 +456,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     await this.dataSource.transaction(async (m) => {
       const d = await m.findOneBy(Delivery, { id });
       if (!d || d.status !== DeliveryStatus.PENDING) throw new ConflictException('Course déjà prise ou indisponible');
+      if (d.targetCompanyId && d.targetCompanyId !== user.companyId) throw new ForbiddenException('Course réservée à une autre entreprise');
+      if (d.assignedDriverId && d.assignedDriverId !== user.sub) throw new ForbiddenException('Course affectée à un autre livreur');
       const commission = await this.billing.reserve(m, user.companyId, d.price);
       const res = await m
         .createQueryBuilder()
@@ -435,8 +581,11 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
 
   // ---------- Entreprise / Admin ----------
 
+  /** Courses de l'entreprise : prises par ses livreurs, ou adressées à elle (en attente) */
   forCompany(companyId: string) {
-    return this.query().where('d.companyId = :companyId', { companyId }).getMany();
+    return this.query(true)
+      .where('(d.companyId = :companyId OR d.targetCompanyId = :companyId)', { companyId })
+      .getMany();
   }
 
   all() {
