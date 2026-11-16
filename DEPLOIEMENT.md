@@ -97,7 +97,20 @@ npm run build                     # utilise .env.production → https://api.leto
 rsync -a --delete dist/ /var/www/leto/backoffice/
 ```
 
-## 8. Apache
+## 8. Apache — serveur cPanel/WHM (cas de ce VPS)
+
+Sur un serveur cPanel, **n'utilisez pas** `a2enmod` / `a2ensite` (cPanel régénère la configuration Apache). Un script fait tout dans le compte cPanel propriétaire du domaine (`performx`) :
+
+```bash
+cd /var/www/leto/leto-backend
+CPUSER=performx bash deploy/cpanel/setup.sh
+```
+
+Il crée les sous-domaines `leto` et `api.leto`, copie le back-office dans `/home/performx/public_html/leto.performx.online`, écrit le relais vers l'API dans `/etc/apache2/conf.d/userdata/{std,ssl}/2_4/performx/api.leto.performx.online/` (conservé par cPanel), redémarre Apache et lance AutoSSL. Les étapes 8 bis et 9 ci-dessous ne concernent alors pas ce serveur.
+
+Mises à jour : `CPUSER=performx bash deploy/update.sh`.
+
+## 8 bis. Apache sans cPanel (Ubuntu/Debian classique)
 
 ```bash
 sudo a2enmod proxy proxy_http proxy_wstunnel rewrite headers ssl
