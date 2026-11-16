@@ -14,6 +14,9 @@ import { DeliveriesService } from './deliveries/deliveries.service';
 import { Delivery } from './deliveries/delivery.entity';
 import { GeoController } from './geo/geo.controller';
 import { GeoService } from './geo/geo.service';
+import { Offer } from './offers/offer.entity';
+import { OffersController } from './offers/offers.controller';
+import { OffersService } from './offers/offers.service';
 import { PricingController } from './pricing/pricing.controller';
 import { UploadsController } from './uploads/uploads.controller';
 import { TrackingGateway } from './tracking/tracking.gateway';
@@ -30,11 +33,11 @@ import { UsersController } from './users/users.controller';
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, Company, Delivery],
+      entities: [User, Company, Delivery, Offer],
       // Pratique en dev : crée/maj les tables automatiquement. À remplacer par des migrations en prod.
       synchronize: true,
     }),
-    TypeOrmModule.forFeature([User, Company, Delivery]),
+    TypeOrmModule.forFeature([User, Company, Delivery, Offer]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
@@ -46,6 +49,7 @@ import { UsersController } from './users/users.controller';
     CompaniesController,
     DeliveriesController,
     GeoController,
+    OffersController,
     PricingController,
     UploadsController,
     UsersController,
@@ -55,6 +59,7 @@ import { UsersController } from './users/users.controller';
     CompaniesService,
     DeliveriesService,
     GeoService,
+    OffersService,
     TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

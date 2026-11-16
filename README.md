@@ -40,7 +40,16 @@ Délai : Express ×1,2 · Standard ×1 · Dans 2 heures ×0,85.
 
 Le client indique le montant de la marchandise (`codAmount`). Le livreur l'encaisse pour son **entreprise**, qui le reverse ensuite au client et le marque « reversé » (`POST /deliveries/:id/cod-remitted`).
 
-Le mode de paiement de la course (`CASH`, `WAVE`, `ORANGE_MONEY`, `MTN_MOMO`) est déclaratif : le client paie le livreur directement. Il n'y a pas encore d'intégration d'API Mobile Money.
+La course se paie **en espèces uniquement**, au livreur.
+
+## Proposez votre prix
+
+Sur une course en attente, un livreur peut l'accepter au prix affiché ou proposer un prix plus élevé :
+- la proposition doit être supérieure au prix affiché et au plus égale au double ;
+- elle est valable 2 minutes, et une nouvelle proposition du même livreur remplace la précédente ;
+- le client voit les propositions en direct (événement `delivery:offers`), avec le temps d'arrivée estimé de chaque livreur ;
+- s'il accepte, la course est attribuée à ce livreur, au prix proposé, et les autres propositions sont refusées ;
+- les livreurs reçoivent `offer:accepted` ou `offer:rejected`.
 
 ## Cartographie (OpenStreetMap + Google)
 
@@ -67,6 +76,8 @@ Le mode de paiement de la course (`CASH`, `WAVE`, `ORANGE_MONEY`, `MTN_MOMO`) es
 | POST | `/deliveries/:id/accept`, `/pickup`, `/deliver` | DRIVER |
 | GET | `/deliveries/company` | COMPANY |
 | POST | `/deliveries/:id/cod-remitted` | COMPANY |
+| POST | `/deliveries/:id/offers` `{ price }` · GET `/offers/mine` | DRIVER |
+| GET | `/deliveries/:id/offers` · POST `/offers/:id/accept` · POST `/offers/:id/decline` | CLIENT |
 | GET/POST | `/companies/me/drivers` | COMPANY |
 | PATCH | `/companies/me/drivers/:id/active?value=` | COMPANY |
 | GET | `/deliveries` | SUPER_ADMIN |

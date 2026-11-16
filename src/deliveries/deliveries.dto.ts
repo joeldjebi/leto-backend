@@ -14,7 +14,7 @@ import {
   Min,
 } from 'class-validator';
 import { PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
-import { DeliverySpeed, PaymentMethod, VehicleType } from '../pricing/pricing';
+import { DeliverySpeed, VehicleType } from '../pricing/pricing';
 
 const PHOTO_REGEX = /^\/uploads\/[\w.-]+$/;
 
@@ -22,7 +22,6 @@ export class CreateDeliveryDto {
   // ----- Offre -----
   @IsOptional() @IsEnum(VehicleType) vehicleType?: VehicleType;
   @IsOptional() @IsEnum(DeliverySpeed) speed?: DeliverySpeed;
-  @IsOptional() @IsEnum(PaymentMethod) paymentMethod?: PaymentMethod;
 
   // ----- Départ -----
   @IsLatitude() pickupLat: number;

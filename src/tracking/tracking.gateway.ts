@@ -24,12 +24,15 @@ import { Role, User } from '../users/user.entity';
  *  - `delivery:<id>`      : client / livreur / entreprise / SA qui suivent une course
  *  - `company:<id>`       : gérant d'une entreprise (positions de ses livreurs)
  *  - `super-admin`        : SA (toutes les positions)
+ *  - `user:<id>`          : chaque utilisateur (réponses aux propositions de prix)
  *
  * Événements émis par le serveur :
  *  - `driver:location`    { deliveryId?, driverId, lat, lng, at }
  *  - `delivery:updated`   { id, status }   → l'app recharge la course via l'API REST
  *  - `deliveries:changed` {}               → les livreurs rechargent la liste des courses disponibles
  *  - `driver:offline`     { driverId }     → un livreur est passé hors ligne
+ *  - `delivery:offers`    { deliveryId }   → nouvelle proposition de prix (client)
+ *  - `offer:accepted` / `offer:rejected` { deliveryId } → réponse du client (livreur)
  */
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
@@ -63,6 +66,7 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
   handleConnection(socket: Socket) {
     const user: AuthUser = socket.data.user;
     if (!user) return socket.disconnect(true);
+    socket.join(`user:${user.sub}`);
     if (user.role === Role.DRIVER) socket.join('drivers');
     if (user.role === Role.COMPANY) socket.join(`company:${user.companyId}`);
     if (user.role === Role.SUPER_ADMIN) socket.join('super-admin');
@@ -129,6 +133,14 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
   }
 
   // ---------- Appelé par DeliveriesService ----------
+
+  emitToUser(userId: string, event: string, payload: unknown) {
+    this.server?.to(`user:${userId}`).emit(event, payload);
+  }
+
+  emitToDelivery(deliveryId: string, event: string, payload: unknown) {
+    this.server?.to(`delivery:${deliveryId}`).emit(event, payload);
+  }
 
   deliveryChanged(d: { id: string; status: DeliveryStatus }) {
     this.server?.to(`delivery:${d.id}`).emit('delivery:updated', { id: d.id, status: d.status });

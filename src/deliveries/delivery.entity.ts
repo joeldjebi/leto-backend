@@ -7,7 +7,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Company } from '../companies/company.entity';
-import { DeliverySpeed, PaymentMethod, VehicleType } from '../pricing/pricing';
+import { DeliverySpeed, VehicleType } from '../pricing/pricing';
 import { User } from '../users/user.entity';
 
 export enum DeliveryStatus {
@@ -43,9 +43,6 @@ export class Delivery {
   vehicleType: VehicleType;
   @Column({ type: 'enum', enum: DeliverySpeed, default: DeliverySpeed.STANDARD })
   speed: DeliverySpeed;
-  /** Mode de paiement de la course (Mobile Money = paiement direct au livreur) */
-  @Column({ type: 'enum', enum: PaymentMethod, default: PaymentMethod.CASH })
-  paymentMethod: PaymentMethod;
 
   // Enlèvement
   @Column()
@@ -109,7 +106,7 @@ export class Delivery {
   @Column({ type: 'text', nullable: true })
   packageDescription: string | null;
 
-  /** Prix de la course en FCFA (frais de paiement à la livraison inclus) */
+  /** Prix de la course en FCFA, payé en espèces (frais de paiement à la livraison inclus) */
   @Column('int')
   price: number;
 

@@ -10,7 +10,8 @@ import { Repository } from 'typeorm';
 import { AuthUser } from '../common/decorators';
 import { nearestCommune } from '../geo/communes';
 import { GeoService } from '../geo/geo.service';
-import { computePrice, DeliverySpeed, PaymentMethod, VehicleType } from '../pricing/pricing';
+import { computePrice, DeliverySpeed, VehicleType } from '../pricing/pricing';
+import { Offer, OfferStatus } from '../offers/offer.entity';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { CreateDeliveryDto } from './deliveries.dto';
 import { Delivery, DeliveryStatus } from './delivery.entity';
@@ -19,6 +20,7 @@ import { Delivery, DeliveryStatus } from './delivery.entity';
 export class DeliveriesService {
   constructor(
     @InjectRepository(Delivery) private repo: Repository<Delivery>,
+    @InjectRepository(Offer) private offers: Repository<Offer>,
     private tracking: TrackingGateway,
     private geo: GeoService,
   ) {}
@@ -57,7 +59,6 @@ export class DeliveriesService {
         clientId,
         vehicleType,
         speed,
-        paymentMethod: dto.paymentMethod ?? PaymentMethod.CASH,
         codAmount,
         pickupCommune: nearestCommune(dto.pickupLat, dto.pickupLng),
         dropoffCommune: nearestCommune(dto.dropoffLat, dto.dropoffLng),
@@ -92,6 +93,7 @@ export class DeliveriesService {
     if (!res.affected) {
       throw new BadRequestException('Seule une course en attente peut être annulée');
     }
+    await this.closeOffers(id);
     return this.notify(await this.query(true).where('d.id = :id', { id }).getOne());
   }
 
@@ -126,6 +128,7 @@ export class DeliveriesService {
       .where('id = :id AND status = :s', { id, s: DeliveryStatus.PENDING })
       .execute();
     if (!res.affected) throw new ConflictException('Course déjà prise ou indisponible');
+    await this.closeOffers(id);
     return this.notify(await this.findOne(id));
   }
 
@@ -174,6 +177,11 @@ export class DeliveriesService {
       .execute();
     if (!res.affected) throw new BadRequestException('Rien à reverser pour cette course');
     return this.notify(await this.findOne(id));
+  }
+
+  /** Refuse les propositions de prix encore en attente sur une course */
+  private closeOffers(deliveryId: string) {
+    return this.offers.update({ deliveryId, status: OfferStatus.PENDING }, { status: OfferStatus.REJECTED });
   }
 
   private async findOne(id: string) {

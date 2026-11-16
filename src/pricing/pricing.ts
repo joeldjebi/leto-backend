@@ -2,6 +2,7 @@
  * Grille tarifaire LETO — tout se règle ici.
  * Prix = max(minimum, base + prixKm × distance) × facteur délai (+ frais paiement à la livraison),
  * arrondi aux 50 FCFA supérieurs.
+ * Paiement de la course : en espèces uniquement.
  */
 export enum VehicleType {
   MOTO = 'MOTO',
@@ -13,13 +14,6 @@ export enum DeliverySpeed {
   EXPRESS = 'EXPRESS',
   STANDARD = 'STANDARD',
   SCHEDULED = 'SCHEDULED',
-}
-
-export enum PaymentMethod {
-  CASH = 'CASH',
-  WAVE = 'WAVE',
-  ORANGE_MONEY = 'ORANGE_MONEY',
-  MTN_MOMO = 'MTN_MOMO',
 }
 
 export const VEHICLES: Record<VehicleType, { label: string; description: string; base: number; perKm: number; min: number }> = {
