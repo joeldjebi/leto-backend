@@ -1,7 +1,6 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
 import { AuthUser, CurrentUser, Public } from '../common/decorators';
-import { PersonDto } from '../common/dto';
-import { LoginDto } from './auth.dto';
+import { LoginDto, RegisterDto, UpdateProfileDto } from './auth.dto';
 import { AuthService } from './auth.service';
 
 @Controller('auth')
@@ -10,7 +9,7 @@ export class AuthController {
 
   @Public()
   @Post('register')
-  register(@Body() dto: PersonDto) {
+  register(@Body() dto: RegisterDto) {
     return this.auth.register(dto);
   }
 
@@ -23,5 +22,10 @@ export class AuthController {
   @Get('me')
   me(@CurrentUser() user: AuthUser) {
     return this.auth.me(user.sub);
+  }
+
+  @Patch('me')
+  updateMe(@CurrentUser() user: AuthUser, @Body() dto: UpdateProfileDto) {
+    return this.auth.updateProfile(user.sub, dto);
   }
 }

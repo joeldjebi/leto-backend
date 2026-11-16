@@ -35,6 +35,8 @@ export interface SpeedConfig {
 export interface PricingGrid {
   vehicles: Record<VehicleType, VehicleConfig>;
   speeds: Record<DeliverySpeed, SpeedConfig>;
+  /** Paiement à la livraison proposé aux clients (désactivé par défaut) */
+  codEnabled: boolean;
   /** Frais par arrêt où le livreur encaisse le prix de la marchandise */
   codFee: number;
   /** Tournée : supplément par arrêt au-delà du premier */
@@ -60,6 +62,7 @@ export const defaultGrid = (): PricingGrid => ({
     STANDARD: { label: 'Standard', description: 'Le livreur peut livrer un autre colis sur la route', factor: 1 },
     SCHEDULED: { label: 'Dans 2 heures', description: 'Le moins cher', factor: 0.85 },
   },
+  codEnabled: false,
   codFee: 250,
   extraStopFee: 300,
   maxStops: MAX_STOPS,

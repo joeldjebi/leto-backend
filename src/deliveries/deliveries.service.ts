@@ -59,6 +59,9 @@ export class DeliveriesService {
     const speed = dto.speed ?? DeliverySpeed.STANDARD;
     if (!grid.vehicles[vehicleType].enabled) throw new BadRequestException('Cette offre n’est pas disponible');
     if (dto.stops.length > grid.maxStops) throw new BadRequestException(`${grid.maxStops} adresses maximum par tournée`);
+    if (!grid.codEnabled && dto.stops.some((s) => (s.codAmount ?? 0) > 0)) {
+      throw new BadRequestException('Le paiement à la livraison n’est pas disponible pour le moment');
+    }
     const pickup = { lat: dto.pickupLat, lng: dto.pickupLng };
 
     // Ordre de passage optimisé, puis itinéraire complet (le prix est toujours calculé ici)

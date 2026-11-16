@@ -63,6 +63,7 @@ export class SettingsService implements OnModuleInit {
         if (src[k] !== undefined) (out.speeds[sp] as any)[k] = src[k];
       }
     }
+    if (typeof input.codEnabled === 'boolean') out.codEnabled = input.codEnabled;
     for (const k of ['codFee', 'extraStopFee', 'maxStops', 'absenceWaitMin'] as const) {
       if (input[k] !== undefined) out[k] = input[k] as number;
     }

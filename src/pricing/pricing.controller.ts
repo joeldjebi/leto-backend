@@ -65,7 +65,7 @@ export class PricingController {
     const order = await this.geo.optimizeOrder(pickup, dto.stops);
     const ordered = order.map((i) => dto.stops[i]);
     const route = await this.geo.routeVia([pickup, ...ordered]);
-    const codStops = ordered.filter((s) => s.cod).length;
+    const codStops = grid.codEnabled ? ordered.filter((s) => s.cod).length : 0;
     const offers = (Object.keys(grid.vehicles) as VehicleType[])
       .filter((vehicle) => grid.vehicles[vehicle].enabled)
       .map((vehicle) => ({
@@ -87,6 +87,7 @@ export class PricingController {
       legs: route.legs,
       offers,
       speeds: grid.speeds,
+      codEnabled: grid.codEnabled,
       codFee: grid.codFee,
       extraStopFee: grid.extraStopFee,
     };

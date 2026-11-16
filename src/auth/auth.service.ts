@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   ConflictException,
   Injectable,
   Logger,
@@ -9,9 +10,8 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Repository } from 'typeorm';
-import { PersonDto } from '../common/dto';
 import { Role, User } from '../users/user.entity';
-import { LoginDto } from './auth.dto';
+import { LoginDto, RegisterDto, UpdateProfileDto } from './auth.dto';
 
 @Injectable()
 export class AuthService implements OnApplicationBootstrap {
@@ -67,7 +67,7 @@ export class AuthService implements OnApplicationBootstrap {
   }
 
   /** Inscription publique : uniquement des clients (particuliers / boutiques) */
-  async register(dto: PersonDto) {
+  async register(dto: RegisterDto) {
     if (await this.users.existsBy({ phone: dto.phone })) {
       throw new ConflictException('Ce numéro est déjà utilisé');
     }
@@ -76,6 +76,7 @@ export class AuthService implements OnApplicationBootstrap {
       phone: dto.phone,
       passwordHash: await bcrypt.hash(dto.password, 10),
       role: Role.CLIENT,
+      accountType: dto.accountType,
     });
     return this.session(user);
   }
@@ -98,6 +99,30 @@ export class AuthService implements OnApplicationBootstrap {
 
   me(id: string) {
     return this.users.findOne({ where: { id }, relations: { company: true } });
+  }
+
+  /** Profil : nom, type de compte (clients), numéro et mot de passe (avec le mot de passe actuel) */
+  async updateProfile(id: string, dto: UpdateProfileDto) {
+    const user = await this.users.createQueryBuilder('u').addSelect('u.passwordHash').where('u.id = :id', { id }).getOne();
+    if (!user) throw new UnauthorizedException();
+    const changes: Partial<User> = {};
+    if (dto.name !== undefined) changes.name = dto.name.trim();
+    if (dto.accountType !== undefined && user.role === Role.CLIENT) changes.accountType = dto.accountType;
+
+    const phoneChange = dto.phone !== undefined && dto.phone !== user.phone;
+    if (phoneChange || dto.newPassword) {
+      if (user.role === Role.SUPER_ADMIN) throw new BadRequestException('Le compte Super Admin se modifie dans le fichier .env du serveur');
+      if (!dto.currentPassword || !(await bcrypt.compare(dto.currentPassword, user.passwordHash))) {
+        throw new BadRequestException('Mot de passe actuel incorrect');
+      }
+    }
+    if (phoneChange) {
+      if (await this.users.existsBy({ phone: dto.phone })) throw new ConflictException('Ce numéro est déjà utilisé');
+      changes.phone = dto.phone;
+    }
+    if (dto.newPassword) changes.passwordHash = await bcrypt.hash(dto.newPassword, 10);
+    if (Object.keys(changes).length) await this.users.update(id, changes);
+    return this.me(id);
   }
 
   private async session(user: User) {

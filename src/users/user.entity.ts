@@ -8,6 +8,12 @@ export enum Role {
   SUPER_ADMIN = 'SUPER_ADMIN', // super admin (SA) de la plateforme LETO
 }
 
+/** Type de compte client, choisi à l'inscription */
+export enum AccountType {
+  INDIVIDUAL = 'INDIVIDUAL', // particulier
+  SHOP = 'SHOP', // boutique / commerce
+}
+
 @Entity('users')
 export class User {
   @PrimaryGeneratedColumn('uuid')
@@ -30,6 +36,9 @@ export class User {
 
   @Column({ type: 'uuid', nullable: true })
   companyId: string | null;
+
+  @Column({ type: 'enum', enum: AccountType, nullable: true })
+  accountType: AccountType | null;
 
   @Column({ default: true })
   active: boolean;
