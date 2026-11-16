@@ -75,6 +75,12 @@ export class DeliveriesController {
     return this.service.forCompany(user.companyId);
   }
 
+  @Post(':id/cod-remitted')
+  @Roles(Role.COMPANY)
+  codRemitted(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.markCodRemitted(user.companyId, id);
+  }
+
   @Get()
   @Roles(Role.SUPER_ADMIN)
   all() {

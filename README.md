@@ -24,9 +24,31 @@ Un compte Super Admin (SA) est créé au premier démarrage (`SUPER_ADMIN_PHONE`
 
 L'acceptation est atomique : si deux livreurs acceptent en même temps, un seul obtient la course.
 
-## Tarifs
+## Tarifs (`src/pricing/pricing.ts`)
 
-Grille par commune du Grand Abidjan, dans `src/pricing/pricing.ts` : 1 000 FCFA (même commune), 1 500 FCFA (autre commune), 2 500 FCFA (périphérie : Bingerville, Songon, Anyama). Paiement en espèces au livreur.
+Prix = max(minimum, base + prix/km × distance) × facteur délai (+ 250 F si paiement à la livraison), arrondi aux 50 F supérieurs. La distance est celle de l'itinéraire réel, et le prix est toujours recalculé par le serveur.
+
+| Offre | Base | /km | Minimum |
+|---|---|---|---|
+| Moto | 500 F | 150 F | 1 000 F |
+| Voiture | 1 000 F | 250 F | 2 000 F |
+| Cargo | 3 000 F | 400 F | 5 000 F |
+
+Délai : Express ×1,2 · Standard ×1 · Dans 2 heures ×0,85.
+
+## Paiement à la livraison
+
+Le client indique le montant de la marchandise (`codAmount`). Le livreur l'encaisse pour son **entreprise**, qui le reverse ensuite au client et le marque « reversé » (`POST /deliveries/:id/cod-remitted`).
+
+Le mode de paiement de la course (`CASH`, `WAVE`, `ORANGE_MONEY`, `MTN_MOMO`) est déclaratif : le client paie le livreur directement. Il n'y a pas encore d'intégration d'API Mobile Money.
+
+## Cartographie (OpenStreetMap + Google)
+
+- Les apps affichent les tuiles OpenStreetMap.
+- Les recherches passent par `/geo/*` : Google (si `GOOGLE_MAPS_API_KEY` est renseignée dans `.env`) et OpenStreetMap, fusionnés.
+- L'itinéraire vient de Google Routes, sinon d'OSRM, sinon d'une estimation à vol d'oiseau.
+- Sans clé, tout fonctionne avec OpenStreetMap uniquement.
+- Nominatim et OSRM publics conviennent au développement (environ 1 requête/s). En production, il faut une clé Google ou des serveurs auto-hébergés.
 
 ## Endpoints
 
@@ -35,13 +57,16 @@ Grille par commune du Grand Abidjan, dans `src/pricing/pricing.ts` : 1 000 FCFA 
 | POST | `/auth/register` | public (crée un client) |
 | POST | `/auth/login` | public |
 | GET | `/auth/me` | connecté |
-| GET | `/pricing/communes`, `/pricing/quote?from=&to=` | public |
+| GET | `/geo/search?q=&lat=&lng=`, `/geo/reverse?lat=&lng=`, `/geo/route?fromLat=…` | connecté |
+| POST | `/pricing/quote` · GET `/pricing/eta?lat=&lng=` · GET `/pricing/grid` | connecté |
+| POST | `/uploads` (photo d'adresse, multipart `file`) | connecté |
 | POST | `/deliveries` | CLIENT |
 | GET | `/deliveries/mine`, `/deliveries/mine/:id` | CLIENT |
 | POST | `/deliveries/:id/cancel` | CLIENT |
 | GET | `/deliveries/available`, `/deliveries/driver` | DRIVER |
 | POST | `/deliveries/:id/accept`, `/pickup`, `/deliver` | DRIVER |
 | GET | `/deliveries/company` | COMPANY |
+| POST | `/deliveries/:id/cod-remitted` | COMPANY |
 | GET/POST | `/companies/me/drivers` | COMPANY |
 | PATCH | `/companies/me/drivers/:id/active?value=` | COMPANY |
 | GET | `/deliveries` | SUPER_ADMIN |

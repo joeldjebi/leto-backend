@@ -29,6 +29,7 @@ import { Role, User } from '../users/user.entity';
  *  - `driver:location`    { deliveryId?, driverId, lat, lng, at }
  *  - `delivery:updated`   { id, status }   → l'app recharge la course via l'API REST
  *  - `deliveries:changed` {}               → les livreurs rechargent la liste des courses disponibles
+ *  - `driver:offline`     { driverId }     → un livreur est passé hors ligne
  */
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
@@ -114,6 +115,16 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
     for (const d of active) {
       this.server.to(`delivery:${d.id}`).emit('driver:location', { ...payload, deliveryId: d.id });
     }
+    return { ok: true };
+  }
+
+  /** Le livreur passe « hors ligne » : il n'apparaît plus sur les cartes ni dans les délais */
+  @SubscribeMessage('driver:offline')
+  async offline(@ConnectedSocket() socket: Socket) {
+    const user: AuthUser = socket.data.user;
+    if (user?.role !== Role.DRIVER) return { ok: false };
+    await this.users.update(user.sub, { lastLocationAt: null });
+    this.server.to(`company:${user.companyId}`).to('super-admin').emit('driver:offline', { driverId: user.sub });
     return { ok: true };
   }
 

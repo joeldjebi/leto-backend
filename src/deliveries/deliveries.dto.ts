@@ -1,5 +1,7 @@
+import { Type } from 'class-transformer';
 import {
-  IsIn,
+  IsEnum,
+  IsInt,
   IsLatitude,
   IsLongitude,
   IsNotEmpty,
@@ -7,43 +9,50 @@ import {
   IsString,
   Length,
   Matches,
+  Max,
+  MaxLength,
+  Min,
 } from 'class-validator';
 import { PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
-import { COMMUNES } from '../pricing/pricing';
+import { DeliverySpeed, PaymentMethod, VehicleType } from '../pricing/pricing';
+
+const PHOTO_REGEX = /^\/uploads\/[\w.-]+$/;
 
 export class CreateDeliveryDto {
-  @IsIn(COMMUNES as readonly string[], { message: 'Commune de départ inconnue' })
-  pickupCommune: string;
+  // ----- Offre -----
+  @IsOptional() @IsEnum(VehicleType) vehicleType?: VehicleType;
+  @IsOptional() @IsEnum(DeliverySpeed) speed?: DeliverySpeed;
+  @IsOptional() @IsEnum(PaymentMethod) paymentMethod?: PaymentMethod;
 
-  @IsString()
-  @IsNotEmpty()
-  pickupAddress: string;
+  // ----- Départ -----
+  @IsLatitude() pickupLat: number;
+  @IsLongitude() pickupLng: number;
+  @IsString() @IsNotEmpty() @MaxLength(200) pickupAddress: string;
+  @IsOptional() @IsString() @MaxLength(500) pickupDetails?: string;
+  @IsOptional() @IsString() @MaxLength(100) pickupContactName?: string;
+  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) pickupPhone: string;
+  @IsOptional() @Matches(PHOTO_REGEX) pickupPhotoUrl?: string;
 
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE })
-  pickupPhone: string;
+  // ----- Arrivée -----
+  @IsLatitude() dropoffLat: number;
+  @IsLongitude() dropoffLng: number;
+  @IsString() @IsNotEmpty() @MaxLength(200) dropoffAddress: string;
+  @IsOptional() @IsString() @MaxLength(500) dropoffDetails?: string;
+  @IsString() @IsNotEmpty() @MaxLength(100) recipientName: string;
+  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) recipientPhone: string;
+  @IsOptional() @Matches(PHOTO_REGEX) dropoffPhotoUrl?: string;
 
-  @IsIn(COMMUNES as readonly string[], { message: "Commune d'arrivée inconnue" })
-  dropoffCommune: string;
+  // ----- Colis -----
+  @IsOptional() @IsString() @MaxLength(500) packageDescription?: string;
+  @IsOptional() @IsString() @MaxLength(500) courierComment?: string;
 
-  @IsString()
-  @IsNotEmpty()
-  dropoffAddress: string;
-
-  @IsString()
-  @IsNotEmpty()
-  recipientName: string;
-
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE })
-  recipientPhone: string;
-
+  /** Paiement à la livraison : montant de la marchandise à encaisser (FCFA) */
   @IsOptional()
-  @IsString()
-  packageDescription?: string;
-
-  @IsOptional() @IsLatitude() pickupLat?: number;
-  @IsOptional() @IsLongitude() pickupLng?: number;
-  @IsOptional() @IsLatitude() dropoffLat?: number;
-  @IsOptional() @IsLongitude() dropoffLng?: number;
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(5_000_000)
+  codAmount?: number;
 }
 
 export class ConfirmDeliveryDto {

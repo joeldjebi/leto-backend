@@ -12,7 +12,10 @@ import { Company } from './companies/company.entity';
 import { DeliveriesController } from './deliveries/deliveries.controller';
 import { DeliveriesService } from './deliveries/deliveries.service';
 import { Delivery } from './deliveries/delivery.entity';
+import { GeoController } from './geo/geo.controller';
+import { GeoService } from './geo/geo.service';
 import { PricingController } from './pricing/pricing.controller';
+import { UploadsController } from './uploads/uploads.controller';
 import { TrackingGateway } from './tracking/tracking.gateway';
 import { User } from './users/user.entity';
 import { UsersController } from './users/users.controller';
@@ -38,11 +41,20 @@ import { UsersController } from './users/users.controller';
       signOptions: { expiresIn: '30d' },
     }),
   ],
-  controllers: [AuthController, CompaniesController, DeliveriesController, PricingController, UsersController],
+  controllers: [
+    AuthController,
+    CompaniesController,
+    DeliveriesController,
+    GeoController,
+    PricingController,
+    UploadsController,
+    UsersController,
+  ],
   providers: [
     AuthService,
     CompaniesService,
     DeliveriesService,
+    GeoService,
     TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

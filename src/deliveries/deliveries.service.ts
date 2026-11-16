@@ -8,7 +8,9 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { randomInt } from 'crypto';
 import { Repository } from 'typeorm';
 import { AuthUser } from '../common/decorators';
-import { computePrice } from '../pricing/pricing';
+import { nearestCommune } from '../geo/communes';
+import { GeoService } from '../geo/geo.service';
+import { computePrice, DeliverySpeed, PaymentMethod, VehicleType } from '../pricing/pricing';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { CreateDeliveryDto } from './deliveries.dto';
 import { Delivery, DeliveryStatus } from './delivery.entity';
@@ -18,6 +20,7 @@ export class DeliveriesService {
   constructor(
     @InjectRepository(Delivery) private repo: Repository<Delivery>,
     private tracking: TrackingGateway,
+    private geo: GeoService,
   ) {}
 
   /** Notifie en temps réel puis renvoie la course */
@@ -40,11 +43,27 @@ export class DeliveriesService {
   // ---------- Client ----------
 
   async create(clientId: string, dto: CreateDeliveryDto) {
+    const vehicleType = dto.vehicleType ?? VehicleType.MOTO;
+    const speed = dto.speed ?? DeliverySpeed.STANDARD;
+    const codAmount = dto.codAmount ?? 0;
+    // Le prix est toujours recalculé côté serveur à partir de l'itinéraire
+    const route = await this.geo.route(
+      { lat: dto.pickupLat, lng: dto.pickupLng },
+      { lat: dto.dropoffLat, lng: dto.dropoffLng },
+    );
     const delivery = await this.repo.save(
       this.repo.create({
         ...dto,
         clientId,
-        price: computePrice(dto.pickupCommune, dto.dropoffCommune),
+        vehicleType,
+        speed,
+        paymentMethod: dto.paymentMethod ?? PaymentMethod.CASH,
+        codAmount,
+        pickupCommune: nearestCommune(dto.pickupLat, dto.pickupLng),
+        dropoffCommune: nearestCommune(dto.dropoffLat, dto.dropoffLng),
+        distanceKm: Math.round(route.distanceKm * 10) / 10,
+        durationMin: route.durationMin,
+        price: computePrice(route.distanceKm, vehicleType, speed, codAmount > 0),
         confirmationCode: randomInt(0, 10000).toString().padStart(4, '0'),
       }),
     );
@@ -139,6 +158,22 @@ export class DeliveriesService {
 
   all() {
     return this.query().getMany();
+  }
+
+  /** L'entreprise confirme avoir reversé au client le montant encaissé à la livraison */
+  async markCodRemitted(companyId: string, id: string) {
+    const res = await this.repo
+      .createQueryBuilder()
+      .update(Delivery)
+      .set({ codRemittedAt: () => 'NOW()' })
+      .where('id = :id AND "companyId" = :companyId AND status = :s AND "codAmount" > 0 AND "codRemittedAt" IS NULL', {
+        id,
+        companyId,
+        s: DeliveryStatus.DELIVERED,
+      })
+      .execute();
+    if (!res.affected) throw new BadRequestException('Rien à reverser pour cette course');
+    return this.notify(await this.findOne(id));
   }
 
   private async findOne(id: string) {

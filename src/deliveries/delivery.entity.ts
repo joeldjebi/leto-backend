@@ -7,6 +7,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Company } from '../companies/company.entity';
+import { DeliverySpeed, PaymentMethod, VehicleType } from '../pricing/pricing';
 import { User } from '../users/user.entity';
 
 export enum DeliveryStatus {
@@ -37,23 +38,63 @@ export class Delivery {
   @Column({ type: 'uuid', nullable: true })
   companyId: string | null;
 
+  // Offre
+  @Column({ type: 'enum', enum: VehicleType, default: VehicleType.MOTO })
+  vehicleType: VehicleType;
+  @Column({ type: 'enum', enum: DeliverySpeed, default: DeliverySpeed.STANDARD })
+  speed: DeliverySpeed;
+  /** Mode de paiement de la course (Mobile Money = paiement direct au livreur) */
+  @Column({ type: 'enum', enum: PaymentMethod, default: PaymentMethod.CASH })
+  paymentMethod: PaymentMethod;
+
   // Enlèvement
   @Column()
   pickupCommune: string;
+  /** Nom du lieu / adresse (recherche ou carte) */
   @Column()
   pickupAddress: string;
+  /** Précisions : repère, étage, portail… */
+  @Column({ type: 'text', nullable: true })
+  pickupDetails: string | null;
+  @Column({ type: 'text', nullable: true })
+  pickupContactName: string | null;
   @Column()
   pickupPhone: string;
+  @Column({ type: 'text', nullable: true })
+  pickupPhotoUrl: string | null;
 
   // Destination
   @Column()
   dropoffCommune: string;
   @Column()
   dropoffAddress: string;
+  @Column({ type: 'text', nullable: true })
+  dropoffDetails: string | null;
   @Column()
   recipientName: string;
   @Column()
   recipientPhone: string;
+  @Column({ type: 'text', nullable: true })
+  dropoffPhotoUrl: string | null;
+
+  @Column({ type: 'text', nullable: true })
+  courierComment: string | null;
+
+  /** Distance et durée de l'itinéraire (calculées à la création) */
+  @Column({ type: 'double precision', nullable: true })
+  distanceKm: number | null;
+  @Column({ type: 'int', nullable: true })
+  durationMin: number | null;
+
+  /**
+   * Paiement à la livraison : montant de la marchandise que le livreur encaisse
+   * auprès du destinataire pour le compte de son entreprise (0 = aucun).
+   */
+  @Column({ type: 'int', default: 0 })
+  codAmount: number;
+  /** Date à laquelle l'entreprise a reversé le montant au client (boutique) */
+  @Column({ type: 'timestamptz', nullable: true })
+  codRemittedAt: Date | null;
 
   // Coordonnées GPS (choisies sur la carte dans l'app)
   @Column({ type: 'double precision', nullable: true })
@@ -68,7 +109,7 @@ export class Delivery {
   @Column({ type: 'text', nullable: true })
   packageDescription: string | null;
 
-  /** Prix en FCFA, payé en espèces au livreur (MVP) */
+  /** Prix de la course en FCFA (frais de paiement à la livraison inclus) */
   @Column('int')
   price: number;
 
