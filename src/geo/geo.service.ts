@@ -14,10 +14,12 @@ export interface Route {
   durationMin: number;
   /** Tracé [lat, lng] */
   points: [number, number][];
+  /** Distance / durée de chaque tronçon (départ → arrêt 1 → arrêt 2…) */
+  legs: { distanceKm: number; durationMin: number }[];
   source: 'google' | 'osrm' | 'estimate';
 }
 
-type LatLng = { lat: number; lng: number };
+export type LatLng = { lat: number; lng: number };
 
 const UA = 'LETO-delivery/0.1'; // Nominatim exige un User-Agent identifiable
 const ABIDJAN_VIEWBOX = '-4.35,5.60,-3.70,5.15';
@@ -141,28 +143,72 @@ export class GeoService {
 
   // ---------- Itinéraire ----------
 
-  async route(a: LatLng, b: LatLng): Promise<Route> {
-    const key = `route:${a.lat.toFixed(4)},${a.lng.toFixed(4)}:${b.lat.toFixed(4)},${b.lng.toFixed(4)}`;
+  /** Itinéraire entre deux points */
+  route(a: LatLng, b: LatLng): Promise<Route> {
+    return this.routeVia([a, b]);
+  }
+
+  /** Itinéraire passant par tous les points dans l'ordre (départ → arrêts) */
+  async routeVia(points: LatLng[]): Promise<Route> {
+    const key = 'route:' + points.map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join(';');
     return this.cached(key, async () => {
       return (
-        (this.key ? await this.safe(() => this.googleRoute(a, b), null) : null) ??
-        (await this.safe(() => this.osrmRoute(a, b), null)) ??
-        this.estimateRoute(a, b)
+        (this.key ? await this.safe(() => this.googleRoute(points), null) : null) ??
+        (await this.safe(() => this.osrmRoute(points), null)) ??
+        this.estimateRoute(points)
       );
     });
   }
 
-  private async googleRoute(a: LatLng, b: LatLng): Promise<Route> {
+  /**
+   * Ordre de passage le plus court pour les arrêts (le départ reste en premier).
+   * OSRM « trip », sinon plus proche voisin. Renvoie les index des arrêts dans l'ordre.
+   */
+  async optimizeOrder(start: LatLng, stops: LatLng[]): Promise<number[]> {
+    if (stops.length <= 1) return stops.map((_, i) => i);
+    const key = 'trip:' + [start, ...stops].map((p) => `${p.lat.toFixed(4)},${p.lng.toFixed(4)}`).join(';');
+    return this.cached(key, async () => {
+      const osrm = await this.safe(async () => {
+        const coords = [start, ...stops].map((p) => `${p.lng},${p.lat}`).join(';');
+        const res = await this.http(
+          `https://router.project-osrm.org/trip/v1/driving/${coords}?source=first&roundtrip=false&destination=any&overview=false`,
+          { headers: { 'User-Agent': UA } },
+        );
+        if (res.code !== 'Ok') throw new Error('OSRM trip: ' + res.code);
+        const wp: { waypoint_index: number }[] = res.waypoints;
+        return stops.map((_, i) => i).sort((a, b) => wp[a + 1].waypoint_index - wp[b + 1].waypoint_index);
+      }, null);
+      return osrm ?? this.nearestNeighbor(start, stops);
+    });
+  }
+
+  private nearestNeighbor(start: LatLng, stops: LatLng[]): number[] {
+    const left = stops.map((_, i) => i);
+    const order: number[] = [];
+    let cur = start;
+    while (left.length) {
+      left.sort((a, b) => this.km(cur, stops[a]) - this.km(cur, stops[b]));
+      const next = left.shift();
+      order.push(next);
+      cur = stops[next];
+    }
+    return order;
+  }
+
+  private async googleRoute(points: LatLng[]): Promise<Route> {
+    const loc = (p: LatLng) => ({ location: { latLng: { latitude: p.lat, longitude: p.lng } } });
     const res = await this.http('https://routes.googleapis.com/directions/v2:computeRoutes', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': this.key,
-        'X-Goog-FieldMask': 'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline',
+        'X-Goog-FieldMask':
+          'routes.distanceMeters,routes.duration,routes.polyline.encodedPolyline,routes.legs.distanceMeters,routes.legs.duration',
       },
       body: JSON.stringify({
-        origin: { location: { latLng: { latitude: a.lat, longitude: a.lng } } },
-        destination: { location: { latLng: { latitude: b.lat, longitude: b.lng } } },
+        origin: loc(points[0]),
+        destination: loc(points[points.length - 1]),
+        intermediates: points.slice(1, -1).map(loc),
         travelMode: 'DRIVE',
       }),
     });
@@ -172,13 +218,18 @@ export class GeoService {
       distanceKm: r.distanceMeters / 1000,
       durationMin: Math.ceil(parseInt(r.duration, 10) / 60),
       points: decodePolyline(r.polyline.encodedPolyline),
+      legs: (r.legs ?? []).map((l: any) => ({
+        distanceKm: (l.distanceMeters ?? 0) / 1000,
+        durationMin: Math.ceil(parseInt(l.duration ?? '0', 10) / 60),
+      })),
       source: 'google',
     };
   }
 
-  private async osrmRoute(a: LatLng, b: LatLng): Promise<Route> {
+  private async osrmRoute(points: LatLng[]): Promise<Route> {
+    const coords = points.map((p) => `${p.lng},${p.lat}`).join(';');
     const res = await this.http(
-      `https://router.project-osrm.org/route/v1/driving/${a.lng},${a.lat};${b.lng},${b.lat}?overview=full&geometries=geojson`,
+      `https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson`,
       { headers: { 'User-Agent': UA } },
     );
     const r = res.routes?.[0];
@@ -187,22 +238,28 @@ export class GeoService {
       distanceKm: r.distance / 1000,
       durationMin: Math.ceil(r.duration / 60),
       points: r.geometry.coordinates.map(([lng, lat]: [number, number]) => [lat, lng]),
+      legs: r.legs.map((l: any) => ({ distanceKm: l.distance / 1000, durationMin: Math.ceil(l.duration / 60) })),
       source: 'osrm',
     };
   }
 
   /** Secours hors ligne : vol d'oiseau × 1,35, à 20 km/h de moyenne (trafic d'Abidjan) */
-  estimateRoute(a: LatLng, b: LatLng): Route {
-    const distanceKm = haversineKm(a.lat, a.lng, b.lat, b.lng) * 1.35;
+  estimateRoute(points: LatLng[]): Route {
+    const legs = points.slice(1).map((p, i) => {
+      const distanceKm = this.km(points[i], p) * 1.35;
+      return { distanceKm, durationMin: Math.max(1, Math.ceil((distanceKm / 20) * 60)) };
+    });
     return {
-      distanceKm,
-      durationMin: Math.max(1, Math.ceil((distanceKm / 20) * 60)),
-      points: [
-        [a.lat, a.lng],
-        [b.lat, b.lng],
-      ],
+      distanceKm: legs.reduce((s, l) => s + l.distanceKm, 0),
+      durationMin: legs.reduce((s, l) => s + l.durationMin, 0),
+      points: points.map((p) => [p.lat, p.lng] as [number, number]),
+      legs,
       source: 'estimate',
     };
+  }
+
+  private km(a: LatLng, b: LatLng) {
+    return haversineKm(a.lat, a.lng, b.lat, b.lng);
   }
 
   // ---------- Utilitaires ----------

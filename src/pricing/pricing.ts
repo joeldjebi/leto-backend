@@ -28,11 +28,27 @@ export const SPEEDS: Record<DeliverySpeed, { label: string; description: string;
   SCHEDULED: { label: 'Dans 2 heures', description: 'Le moins cher', factor: 0.85 },
 };
 
-/** Frais ajoutés quand le livreur encaisse le prix de la marchandise */
+/** Frais par arrêt où le livreur encaisse le prix de la marchandise */
 export const COD_FEE = 250;
 
-export function computePrice(distanceKm: number, vehicle: VehicleType, speed: DeliverySpeed, cod: boolean): number {
+/** Tournée : supplément par arrêt au-delà du premier, et nombre maximum d'arrêts */
+export const EXTRA_STOP_FEE = 300;
+export const MAX_STOPS = 10;
+
+/**
+ * Prix d'une course ou d'une tournée.
+ * (max(minimum, base + prixKm × distance) + supplément arrêts) × facteur délai + frais d'encaissement.
+ */
+export function computePrice(
+  distanceKm: number,
+  vehicle: VehicleType,
+  speed: DeliverySpeed,
+  stops = 1,
+  codStops = 0,
+): number {
   const v = VEHICLES[vehicle];
-  const raw = Math.max(v.min, v.base + v.perKm * distanceKm) * SPEEDS[speed].factor + (cod ? COD_FEE : 0);
+  const raw =
+    (Math.max(v.min, v.base + v.perKm * distanceKm) + EXTRA_STOP_FEE * Math.max(0, stops - 1)) * SPEEDS[speed].factor +
+    COD_FEE * codStops;
   return Math.ceil(raw / 50) * 50;
 }

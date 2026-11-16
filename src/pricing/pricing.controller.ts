@@ -1,18 +1,48 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsBoolean, IsLatitude, IsLongitude, IsOptional } from 'class-validator';
+import { Type } from 'class-transformer';
+import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
+  IsBoolean,
+  IsLatitude,
+  IsLongitude,
+  IsOptional,
+  ValidateNested,
+} from 'class-validator';
+import { absenceWaitMs } from '../deliveries/absence';
 import { MoreThan, Repository } from 'typeorm';
 import { haversineKm } from '../geo/communes';
 import { GeoService } from '../geo/geo.service';
 import { Role, User } from '../users/user.entity';
-import { COD_FEE, computePrice, DeliverySpeed, SPEEDS, VEHICLES, VehicleType } from './pricing';
+import {
+  COD_FEE,
+  computePrice,
+  DeliverySpeed,
+  EXTRA_STOP_FEE,
+  MAX_STOPS,
+  SPEEDS,
+  VEHICLES,
+  VehicleType,
+} from './pricing';
+
+class QuoteStopDto {
+  @IsLatitude() lat: number;
+  @IsLongitude() lng: number;
+  /** Paiement à la livraison sur cet arrêt */
+  @IsOptional() @IsBoolean() cod?: boolean;
+}
 
 class QuoteDto {
   @IsLatitude() pickupLat: number;
   @IsLongitude() pickupLng: number;
-  @IsLatitude() dropoffLat: number;
-  @IsLongitude() dropoffLng: number;
-  @IsOptional() @IsBoolean() cod?: boolean;
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(MAX_STOPS)
+  @ValidateNested({ each: true })
+  @Type(() => QuoteStopDto)
+  stops: QuoteStopDto[];
 }
 
 /** Livreur « en ligne » = position reçue il y a moins de 2 minutes */
@@ -25,31 +55,48 @@ export class PricingController {
   /** Grille tarifaire (affichage) */
   @Get('grid')
   grid() {
-    return { vehicles: VEHICLES, speeds: SPEEDS, codFee: COD_FEE };
+    return {
+      vehicles: VEHICLES,
+      speeds: SPEEDS,
+      codFee: COD_FEE,
+      extraStopFee: EXTRA_STOP_FEE,
+      maxStops: MAX_STOPS,
+      absenceWaitMin: absenceWaitMs() / 60000,
+    };
   }
 
-  /** Prix de chaque offre et délai pour un trajet */
+  /**
+   * Devis d'une course ou d'une tournée : ordre de passage optimisé, itinéraire,
+   * prix de chaque offre (Moto / Voiture / Cargo) pour chaque délai.
+   */
   @Post('quote')
   async quote(@Body() dto: QuoteDto) {
-    const route = await this.geo.route(
-      { lat: dto.pickupLat, lng: dto.pickupLng },
-      { lat: dto.dropoffLat, lng: dto.dropoffLng },
-    );
+    const pickup = { lat: dto.pickupLat, lng: dto.pickupLng };
+    const order = await this.geo.optimizeOrder(pickup, dto.stops);
+    const ordered = order.map((i) => dto.stops[i]);
+    const route = await this.geo.routeVia([pickup, ...ordered]);
+    const codStops = ordered.filter((s) => s.cod).length;
     const offers = (Object.keys(VEHICLES) as VehicleType[]).map((vehicle) => ({
       vehicle,
       label: VEHICLES[vehicle].label,
       description: VEHICLES[vehicle].description,
       prices: Object.fromEntries(
-        (Object.keys(SPEEDS) as DeliverySpeed[]).map((s) => [s, computePrice(route.distanceKm, vehicle, s, !!dto.cod)]),
+        (Object.keys(SPEEDS) as DeliverySpeed[]).map((s) => [
+          s,
+          computePrice(route.distanceKm, vehicle, s, ordered.length, codStops),
+        ]),
       ),
     }));
     return {
+      order, // index des arrêts dans l'ordre de passage
       distanceKm: Math.round(route.distanceKm * 10) / 10,
       durationMin: route.durationMin,
       points: route.points,
+      legs: route.legs,
       offers,
       speeds: SPEEDS,
       codFee: COD_FEE,
+      extraStopFee: EXTRA_STOP_FEE,
     };
   }
 

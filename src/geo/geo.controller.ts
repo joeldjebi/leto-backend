@@ -23,6 +23,17 @@ export class GeoController {
     return this.geo.reverse(num(lat, 'lat'), num(lng, 'lng'));
   }
 
+  /** Itinéraire passant par plusieurs points : ?points=lat,lng;lat,lng;… */
+  @Get('route-via')
+  routeVia(@Query('points') points = '') {
+    const pts = points.split(';').map((p) => {
+      const [lat, lng] = p.split(',');
+      return { lat: num(lat, 'lat'), lng: num(lng, 'lng') };
+    });
+    if (pts.length < 2 || pts.length > 12) throw new BadRequestException('2 à 12 points');
+    return this.geo.routeVia(pts);
+  }
+
   @Get('route')
   route(
     @Query('fromLat') fromLat: string,

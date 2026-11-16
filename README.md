@@ -16,11 +16,31 @@ npm install
 npm run start:dev           # http://localhost:3000
 ```
 
+Comptes de test : `npm run seed` (client 0101010101, boutique 0202020202, livreur 0303030303 : mot de passe `test1234` ; gérant 0722222222 : `secret12`).
+
 Un compte Super Admin (SA) est créé au premier démarrage (`SUPER_ADMIN_PHONE` / `SUPER_ADMIN_PASSWORD` dans `.env`).
+
+## Tournées (plusieurs adresses)
+
+Une course = un départ et 1 à 10 arrêts. L'ordre de passage est optimisé (OSRM « trip », sinon le plus proche voisin). Chaque arrêt a son destinataire, son **code à 4 chiffres** (partagé par l'expéditeur, par exemple sur WhatsApp), son montant à encaisser et son statut (`PENDING`, `DELIVERED`, `FAILED`). La course est terminée quand plus aucun arrêt n'est en attente.
+
+Prix d'une tournée : distance totale + 300 F par arrêt supplémentaire, + 250 F par arrêt avec paiement à la livraison.
+
+**Carnet d'adresses** (`/addresses`) : chaque destinataire est mémorisé automatiquement (par numéro de téléphone).
+
+## Destinataire absent : preuves exigées (`src/deliveries/absence.ts`)
+
+1. Le serveur détecte l'**arrivée** du livreur (moins de 150 m) à partir de son GPS, et l'expéditeur est prévenu (`stop:arrived`).
+2. Le livreur ne peut signaler un échec que **sur place** (moins de 250 m, position de moins de 2 min).
+3. Absence : **attente obligatoire** de `ABSENCE_WAIT_MIN` minutes (5 par défaut) après l'arrivée.
+4. **Photo obligatoire** ; la position GPS est enregistrée.
+5. L'expéditeur est prévenu (`stop:failed`) et peut **contester** : le litige remonte à l'entreprise et au SA.
+
+La livraison reste due par l'expéditeur.
 
 ## Parcours d'une livraison
 
-`PENDING` (en attente) → `ACCEPTED` (un livreur accepte) → `PICKED_UP` (colis récupéré) → `DELIVERED` (le livreur saisit le code à 4 chiffres donné par le destinataire). Le client peut annuler tant que la course est `PENDING`.
+`PENDING` (en attente) → `ACCEPTED` (un livreur accepte) → `PICKED_UP` (colis récupérés) → chaque arrêt est livré (code du destinataire) ou en échec → `DELIVERED`. Le client peut annuler tant que la course est `PENDING`.
 
 L'acceptation est atomique : si deux livreurs acceptent en même temps, un seul obtient la course.
 
@@ -66,7 +86,7 @@ Sur une course en attente, un livreur peut l'accepter au prix affiché ou propos
 | POST | `/auth/register` | public (crée un client) |
 | POST | `/auth/login` | public |
 | GET | `/auth/me` | connecté |
-| GET | `/geo/search?q=&lat=&lng=`, `/geo/reverse?lat=&lng=`, `/geo/route?fromLat=…` | connecté |
+| GET | `/geo/search?q=&lat=&lng=`, `/geo/reverse?lat=&lng=`, `/geo/route?fromLat=…`, `/geo/route-via?points=lat,lng;…` | connecté |
 | POST | `/pricing/quote` · GET `/pricing/eta?lat=&lng=` · GET `/pricing/grid` | connecté |
 | POST | `/uploads` (photo d'adresse, multipart `file`) | connecté |
 | POST | `/deliveries` | CLIENT |
@@ -75,7 +95,10 @@ Sur une course en attente, un livreur peut l'accepter au prix affiché ou propos
 | GET | `/deliveries/available`, `/deliveries/driver` | DRIVER |
 | POST | `/deliveries/:id/accept`, `/pickup`, `/deliver` | DRIVER |
 | GET | `/deliveries/company` | COMPANY |
-| POST | `/deliveries/:id/cod-remitted` | COMPANY |
+| POST | `/deliveries/:id/stops/:stopId/cod-remitted` | COMPANY |
+| POST | `/deliveries/:id/stops/:stopId/deliver` `{ code }` · `/fail` `{ reason, photoUrl, note? }` | DRIVER |
+| POST | `/deliveries/:id/stops/:stopId/dispute` | CLIENT |
+| GET/POST/DELETE | `/addresses` | CLIENT |
 | POST | `/deliveries/:id/offers` `{ price }` · GET `/offers/mine` | DRIVER |
 | GET | `/deliveries/:id/offers` · POST `/offers/:id/accept` · POST `/offers/:id/decline` | CLIENT |
 | GET/POST | `/companies/me/drivers` | COMPANY |

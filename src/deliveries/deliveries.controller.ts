@@ -1,14 +1,14 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { Role } from '../users/user.entity';
-import { ConfirmDeliveryDto, CreateDeliveryDto } from './deliveries.dto';
+import { ConfirmStopDto, CreateDeliveryDto, DisputeStopDto, FailStopDto } from './deliveries.dto';
 import { DeliveriesService } from './deliveries.service';
 
 @Controller('deliveries')
 export class DeliveriesController {
   constructor(private service: DeliveriesService) {}
 
-  // ----- Client -----
+  // ----- Client (particulier ou boutique) -----
   @Post()
   @Roles(Role.CLIENT)
   create(@CurrentUser() user: AuthUser, @Body() dto: CreateDeliveryDto) {
@@ -31,6 +31,17 @@ export class DeliveriesController {
   @Roles(Role.CLIENT)
   cancel(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.service.cancel(user.sub, id);
+  }
+
+  @Post(':id/stops/:stopId/dispute')
+  @Roles(Role.CLIENT)
+  dispute(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('stopId', ParseUUIDPipe) stopId: string,
+    @Body() dto: DisputeStopDto,
+  ) {
+    return this.service.disputeStop(user.sub, id, stopId, dto.note);
   }
 
   // ----- Livreur -----
@@ -58,27 +69,43 @@ export class DeliveriesController {
     return this.service.pickup(user.sub, id);
   }
 
-  @Post(':id/deliver')
+  @Post(':id/stops/:stopId/deliver')
   @Roles(Role.DRIVER)
-  deliver(
+  deliverStop(
     @CurrentUser() user: AuthUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: ConfirmDeliveryDto,
+    @Param('stopId', ParseUUIDPipe) stopId: string,
+    @Body() dto: ConfirmStopDto,
   ) {
-    return this.service.deliver(user.sub, id, dto.code);
+    return this.service.deliverStop(user.sub, id, stopId, dto.code);
   }
 
-  // ----- Entreprise / Admin -----
+  @Post(':id/stops/:stopId/fail')
+  @Roles(Role.DRIVER)
+  failStop(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('stopId', ParseUUIDPipe) stopId: string,
+    @Body() dto: FailStopDto,
+  ) {
+    return this.service.failStop(user.sub, id, stopId, dto);
+  }
+
+  // ----- Entreprise / Super Admin -----
   @Get('company')
   @Roles(Role.COMPANY)
   forCompany(@CurrentUser() user: AuthUser) {
     return this.service.forCompany(user.companyId);
   }
 
-  @Post(':id/cod-remitted')
+  @Post(':id/stops/:stopId/cod-remitted')
   @Roles(Role.COMPANY)
-  codRemitted(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.service.markCodRemitted(user.companyId, id);
+  codRemitted(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('stopId', ParseUUIDPipe) stopId: string,
+  ) {
+    return this.service.markCodRemitted(user.companyId, id, stopId);
   }
 
   @Get()

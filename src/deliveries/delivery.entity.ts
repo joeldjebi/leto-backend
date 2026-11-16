@@ -3,21 +3,27 @@ import {
   CreateDateColumn,
   Entity,
   ManyToOne,
+  OneToMany,
   PrimaryGeneratedColumn,
   UpdateDateColumn,
 } from 'typeorm';
 import { Company } from '../companies/company.entity';
 import { DeliverySpeed, VehicleType } from '../pricing/pricing';
 import { User } from '../users/user.entity';
+import { DeliveryStop } from './delivery-stop.entity';
 
 export enum DeliveryStatus {
   PENDING = 'PENDING', // en attente d'un livreur
   ACCEPTED = 'ACCEPTED', // acceptée, le livreur va au point d'enlèvement
-  PICKED_UP = 'PICKED_UP', // colis récupéré, en route
-  DELIVERED = 'DELIVERED', // livré (code confirmé)
+  PICKED_UP = 'PICKED_UP', // colis récupérés, tournée en cours
+  DELIVERED = 'DELIVERED', // terminée (tous les arrêts livrés ou en échec)
   CANCELLED = 'CANCELLED', // annulée par le client
 }
 
+/**
+ * Une course = un point de départ et un ou plusieurs arrêts (tournée).
+ * Payée en espèces par l'expéditeur (particulier ou boutique).
+ */
 @Entity('deliveries')
 export class Delivery {
   @PrimaryGeneratedColumn('uuid')
@@ -44,13 +50,11 @@ export class Delivery {
   @Column({ type: 'enum', enum: DeliverySpeed, default: DeliverySpeed.STANDARD })
   speed: DeliverySpeed;
 
-  // Enlèvement
+  // Départ
   @Column()
   pickupCommune: string;
-  /** Nom du lieu / adresse (recherche ou carte) */
   @Column()
   pickupAddress: string;
-  /** Précisions : repère, étage, portail… */
   @Column({ type: 'text', nullable: true })
   pickupDetails: string | null;
   @Column({ type: 'text', nullable: true })
@@ -59,63 +63,30 @@ export class Delivery {
   pickupPhone: string;
   @Column({ type: 'text', nullable: true })
   pickupPhotoUrl: string | null;
+  @Column({ type: 'double precision' })
+  pickupLat: number;
+  @Column({ type: 'double precision' })
+  pickupLng: number;
 
-  // Destination
-  @Column()
-  dropoffCommune: string;
-  @Column()
-  dropoffAddress: string;
-  @Column({ type: 'text', nullable: true })
-  dropoffDetails: string | null;
-  @Column()
-  recipientName: string;
-  @Column()
-  recipientPhone: string;
-  @Column({ type: 'text', nullable: true })
-  dropoffPhotoUrl: string | null;
+  /** Arrêts dans l'ordre de passage (optimisé) */
+  @OneToMany(() => DeliveryStop, (s) => s.delivery, { cascade: true })
+  stops: DeliveryStop[];
 
   @Column({ type: 'text', nullable: true })
   courierComment: string | null;
 
-  /** Distance et durée de l'itinéraire (calculées à la création) */
+  /** Itinéraire complet départ → arrêts (calculé à la création) */
   @Column({ type: 'double precision', nullable: true })
   distanceKm: number | null;
   @Column({ type: 'int', nullable: true })
   durationMin: number | null;
 
-  /**
-   * Paiement à la livraison : montant de la marchandise que le livreur encaisse
-   * auprès du destinataire pour le compte de son entreprise (0 = aucun).
-   */
-  @Column({ type: 'int', default: 0 })
-  codAmount: number;
-  /** Date à laquelle l'entreprise a reversé le montant au client (boutique) */
-  @Column({ type: 'timestamptz', nullable: true })
-  codRemittedAt: Date | null;
-
-  // Coordonnées GPS (choisies sur la carte dans l'app)
-  @Column({ type: 'double precision', nullable: true })
-  pickupLat: number | null;
-  @Column({ type: 'double precision', nullable: true })
-  pickupLng: number | null;
-  @Column({ type: 'double precision', nullable: true })
-  dropoffLat: number | null;
-  @Column({ type: 'double precision', nullable: true })
-  dropoffLng: number | null;
-
-  @Column({ type: 'text', nullable: true })
-  packageDescription: string | null;
-
-  /** Prix de la course en FCFA, payé en espèces (frais de paiement à la livraison inclus) */
+  /** Prix total en FCFA, payé en espèces par l'expéditeur */
   @Column('int')
   price: number;
 
   @Column({ type: 'enum', enum: DeliveryStatus, default: DeliveryStatus.PENDING })
   status: DeliveryStatus;
-
-  /** Code à 4 chiffres que le destinataire donne au livreur. Masqué par défaut. */
-  @Column({ length: 4, select: false })
-  confirmationCode: string;
 
   @Column({ type: 'timestamptz', nullable: true })
   acceptedAt: Date | null;

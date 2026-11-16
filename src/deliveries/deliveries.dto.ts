@@ -1,5 +1,8 @@
 import { Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsEnum,
   IsInt,
   IsLatitude,
@@ -12,14 +15,34 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateNested,
 } from 'class-validator';
 import { PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
-import { DeliverySpeed, VehicleType } from '../pricing/pricing';
+import { DeliverySpeed, MAX_STOPS, VehicleType } from '../pricing/pricing';
+import { FailureReason } from './delivery-stop.entity';
 
-const PHOTO_REGEX = /^\/uploads\/[\w.-]+$/;
+export const PHOTO_REGEX = /^\/uploads\/[\w.-]+$/;
+
+export class StopDto {
+  @IsLatitude() lat: number;
+  @IsLongitude() lng: number;
+  @IsString() @IsNotEmpty() @MaxLength(200) address: string;
+  @IsOptional() @IsString() @MaxLength(500) details?: string;
+  @IsOptional() @Matches(PHOTO_REGEX) photoUrl?: string;
+  @IsString() @IsNotEmpty() @MaxLength(100) recipientName: string;
+  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) recipientPhone: string;
+  @IsOptional() @IsString() @MaxLength(300) packageDescription?: string;
+
+  /** Paiement à la livraison : montant de la marchandise à encaisser (FCFA) */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(5_000_000)
+  codAmount?: number;
+}
 
 export class CreateDeliveryDto {
-  // ----- Offre -----
   @IsOptional() @IsEnum(VehicleType) vehicleType?: VehicleType;
   @IsOptional() @IsEnum(DeliverySpeed) speed?: DeliverySpeed;
 
@@ -32,29 +55,29 @@ export class CreateDeliveryDto {
   @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) pickupPhone: string;
   @IsOptional() @Matches(PHOTO_REGEX) pickupPhotoUrl?: string;
 
-  // ----- Arrivée -----
-  @IsLatitude() dropoffLat: number;
-  @IsLongitude() dropoffLng: number;
-  @IsString() @IsNotEmpty() @MaxLength(200) dropoffAddress: string;
-  @IsOptional() @IsString() @MaxLength(500) dropoffDetails?: string;
-  @IsString() @IsNotEmpty() @MaxLength(100) recipientName: string;
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) recipientPhone: string;
-  @IsOptional() @Matches(PHOTO_REGEX) dropoffPhotoUrl?: string;
+  // ----- Arrêts (1 à MAX_STOPS) -----
+  @IsArray()
+  @ArrayMinSize(1, { message: 'Ajoutez au moins une adresse de livraison' })
+  @ArrayMaxSize(MAX_STOPS, { message: `${MAX_STOPS} adresses maximum par tournée` })
+  @ValidateNested({ each: true })
+  @Type(() => StopDto)
+  stops: StopDto[];
 
-  // ----- Colis -----
-  @IsOptional() @IsString() @MaxLength(500) packageDescription?: string;
   @IsOptional() @IsString() @MaxLength(500) courierComment?: string;
-
-  /** Paiement à la livraison : montant de la marchandise à encaisser (FCFA) */
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(5_000_000)
-  codAmount?: number;
 }
 
-export class ConfirmDeliveryDto {
+export class ConfirmStopDto {
   @Length(4, 4, { message: 'Le code fait 4 chiffres' })
   code: string;
+}
+
+export class FailStopDto {
+  @IsEnum(FailureReason) reason: FailureReason;
+  /** Photo obligatoire du lieu (porte, portail…) */
+  @Matches(PHOTO_REGEX, { message: 'Photo du lieu obligatoire' }) photoUrl: string;
+  @IsOptional() @IsString() @MaxLength(300) note?: string;
+}
+
+export class DisputeStopDto {
+  @IsOptional() @IsString() @MaxLength(500) note?: string;
 }

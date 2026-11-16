@@ -11,9 +11,12 @@ import {
 } from '@nestjs/websockets';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Server, Socket } from 'socket.io';
-import { In, Repository } from 'typeorm';
+import { In, IsNull, Repository } from 'typeorm';
 import { AuthUser } from '../common/decorators';
+import { ARRIVAL_RADIUS_M } from '../deliveries/absence';
+import { DeliveryStop, StopStatus } from '../deliveries/delivery-stop.entity';
 import { Delivery, DeliveryStatus } from '../deliveries/delivery.entity';
+import { haversineKm } from '../geo/communes';
 import { Role, User } from '../users/user.entity';
 
 /**
@@ -33,6 +36,9 @@ import { Role, User } from '../users/user.entity';
  *  - `driver:offline`     { driverId }     → un livreur est passé hors ligne
  *  - `delivery:offers`    { deliveryId }   → nouvelle proposition de prix (client)
  *  - `offer:accepted` / `offer:rejected` { deliveryId } → réponse du client (livreur)
+ *  - `stop:arrived`       { deliveryId, stopId, recipientName } → livreur arrivé chez un destinataire
+ *  - `stop:failed`        { deliveryId, stopId, recipientName } → échec signalé (expéditeur)
+ *  - `dispute:new`        { deliveryId, stopId } → contestation (entreprise, SA)
  */
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
@@ -43,6 +49,7 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
     private jwt: JwtService,
     @InjectRepository(User) private users: Repository<User>,
     @InjectRepository(Delivery) private deliveries: Repository<Delivery>,
+    @InjectRepository(DeliveryStop) private stops: Repository<DeliveryStop>,
   ) {}
 
   /**
@@ -114,12 +121,33 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
     // Diffuse aux clients qui suivent les courses en cours de ce livreur
     const active = await this.deliveries.find({
       where: { driverId: user.sub, status: In([DeliveryStatus.ACCEPTED, DeliveryStatus.PICKED_UP]) },
-      select: { id: true },
+      select: { id: true, status: true, clientId: true },
     });
     for (const d of active) {
       this.server.to(`delivery:${d.id}`).emit('driver:location', { ...payload, deliveryId: d.id });
+      if (d.status === DeliveryStatus.PICKED_UP) await this.detectArrivals(d, user.sub, lat, lng);
     }
     return { ok: true };
+  }
+
+  /**
+   * Arrivée chez un destinataire (moins de 150 m) : enregistrée côté serveur,
+   * c'est le point de départ de l'attente obligatoire avant de pouvoir signaler une absence.
+   */
+  private async detectArrivals(d: Delivery, driverId: string, lat: number, lng: number) {
+    const pending = await this.stops.find({
+      where: { deliveryId: d.id, status: StopStatus.PENDING, arrivedAt: IsNull() },
+    });
+    for (const stop of pending) {
+      if (haversineKm(lat, lng, stop.lat, stop.lng) * 1000 > ARRIVAL_RADIUS_M) continue;
+      // Mise à jour conditionnelle : si deux positions arrivent en même temps, une seule l'enregistre
+      const res = await this.stops.update({ id: stop.id, arrivedAt: IsNull() }, { arrivedAt: new Date() });
+      if (!res.affected) continue;
+      const event = { deliveryId: d.id, stopId: stop.id, recipientName: stop.recipientName };
+      this.server.to(`delivery:${d.id}`).emit('delivery:updated', { id: d.id, status: d.status });
+      this.emitToUser(d.clientId, 'stop:arrived', event);
+      this.emitToUser(driverId, 'stop:arrived', event);
+    }
   }
 
   /** Le livreur passe « hors ligne » : il n'apparaît plus sur les cartes ni dans les délais */
@@ -136,6 +164,10 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
 
   emitToUser(userId: string, event: string, payload: unknown) {
     this.server?.to(`user:${userId}`).emit(event, payload);
+  }
+
+  emitToCompany(companyId: string, event: string, payload: unknown) {
+    this.server?.to(`company:${companyId}`).to('super-admin').emit(event, payload);
   }
 
   emitToDelivery(deliveryId: string, event: string, payload: unknown) {
