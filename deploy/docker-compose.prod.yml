@@ -1,0 +1,18 @@
+# Base PostgreSQL de LETO en production — isolée, accessible uniquement depuis le serveur (127.0.0.1:5440)
+# Lancement : docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d
+name: leto-prod
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER:-leto}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?Renseignez DB_PASSWORD dans .env}
+      POSTGRES_DB: ${DB_NAME:-leto}
+    ports:
+      - "127.0.0.1:${DB_PORT:-5440}:5432"
+    volumes:
+      - leto_prod_db:/var/lib/postgresql/data
+
+volumes:
+  leto_prod_db:

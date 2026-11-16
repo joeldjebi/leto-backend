@@ -42,8 +42,9 @@ import { UsersController } from './users/users.controller';
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
       entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting],
-      // Pratique en dev : crée/maj les tables automatiquement. À remplacer par des migrations en prod.
-      synchronize: true,
+      // Crée / met à jour les tables au démarrage (DB_SYNC=false pour désactiver).
+      // À remplacer par des migrations TypeORM quand le schéma sera stabilisé.
+      synchronize: process.env.DB_SYNC !== 'false',
     }),
     TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting]),
     JwtModule.register({
