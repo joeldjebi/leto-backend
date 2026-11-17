@@ -1,7 +1,7 @@
 import { BadRequestException, Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Type } from 'class-transformer';
-import { IsEnum, IsInt, IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsInt, IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Between, FindOptionsWhere, Repository } from 'typeorm';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
@@ -22,7 +22,32 @@ class CreateEntryDto {
   @IsOptional() @IsString() @MaxLength(500) note?: string;
 }
 
+/** Un destinataire d'une saisie groupée (même colis photo, même note) */
+class RecipientDto {
+  @IsString() @IsNotEmpty({ message: 'Adresse obligatoire' }) @MaxLength(200) address: string;
+  @IsOptional() @IsLatitude() lat?: number;
+  @IsOptional() @IsLongitude() lng?: number;
+  @IsOptional() @IsString() @MaxLength(100) recipientName?: string;
+  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) recipientPhone: string;
+  @Type(() => Number) @IsInt({ message: 'Prix entier attendu' }) @Min(0) @Max(1_000_000) price: number;
+}
+
+class CreateManyDto {
+  @Matches(PHOTO, { message: 'Photo du colis obligatoire' }) photoUrl: string;
+  @IsOptional() @IsString() @MaxLength(500) note?: string;
+  @IsArray() @ArrayMinSize(1, { message: 'Au moins un destinataire' }) @ArrayMaxSize(20, { message: '20 destinataires au maximum' })
+  @ValidateNested({ each: true }) @Type(() => RecipientDto)
+  entries: RecipientDto[];
+}
+
+class OrderDto {
+  /** Livraisons « à livrer » dans l'ordre voulu ; liste vide = revenir au tri par le plus proche */
+  @IsArray() @ArrayMaxSize(500) @IsUUID('4', { each: true }) ids: string[];
+}
+
 class UpdateEntryDto {
+  @IsOptional() @IsLatitude() lat?: number;
+  @IsOptional() @IsLongitude() lng?: number;
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(200) address?: string;
   @IsOptional() @IsString() @MaxLength(100) recipientName?: string;
   @IsOptional() @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) recipientPhone?: string;
@@ -100,6 +125,42 @@ export class LogbookController {
     return this.changed(e);
   }
 
+  /** Plusieurs destinataires d'un coup : une livraison par destinataire, même photo et même note */
+  @Post('many')
+  @Roles(Role.DRIVER)
+  async createMany(@CurrentUser() user: AuthUser, @Body() dto: CreateManyDto) {
+    const driver = await this.users.findOneBy({ id: user.sub });
+    const at = new Date().toISOString();
+    const saved = await this.repo.save(
+      dto.entries.map((r) =>
+        this.repo.create({
+          ...r,
+          lat: r.lat ?? null,
+          lng: r.lng ?? null,
+          recipientName: r.recipientName?.trim() || null,
+          photoUrl: dto.photoUrl,
+          note: dto.note?.trim() || null,
+          driverId: user.sub,
+          companyId: driver?.companyId ?? null,
+          history: [{ at, action: 'CREATED' as const }],
+        }),
+      ),
+    );
+    if (saved[0]) this.changed(saved[0]);
+    return saved;
+  }
+
+  /** Ordre de passage choisi par le livreur (liste vide = tri par le plus proche) */
+  @Post('order')
+  @Roles(Role.DRIVER)
+  async order(@CurrentUser() user: AuthUser, @Body() dto: OrderDto) {
+    await this.repo.update({ driverId: user.sub, status: LogbookStatus.TODO }, { sortOrder: null });
+    for (const [i, id] of dto.ids.entries()) {
+      await this.repo.update({ id, driverId: user.sub, status: LogbookStatus.TODO }, { sortOrder: i });
+    }
+    return { ok: true };
+  }
+
   @Patch(':id')
   @Roles(Role.DRIVER)
   async update(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateEntryDto) {
@@ -112,7 +173,11 @@ export class LogbookController {
         (e as unknown as Record<string, unknown>)[k] = to;
       }
     }
-    if (!Object.keys(changes).length) return e;
+    if (dto.lat !== undefined && dto.lng !== undefined) {
+      e.lat = dto.lat;
+      e.lng = dto.lng;
+    }
+    if (!Object.keys(changes).length) return dto.lat !== undefined ? this.repo.save(e) : e;
     e.history = [...e.history, { at: new Date().toISOString(), action: 'UPDATED', changes }];
     return this.changed(await this.repo.save(e));
   }

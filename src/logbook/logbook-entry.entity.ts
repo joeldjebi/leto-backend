@@ -66,6 +66,10 @@ export class LogbookEntry {
   @Column({ type: 'timestamptz', nullable: true })
   doneAt: Date | null;
 
+  /** Ordre de passage choisi par le livreur (null = trié par le plus proche) */
+  @Column({ type: 'int', nullable: true })
+  sortOrder: number | null;
+
   /** Historique complet, visible par l'entreprise */
   @Column({ type: 'jsonb', default: () => "'[]'" })
   history: LogbookEvent[];
