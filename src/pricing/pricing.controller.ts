@@ -38,6 +38,8 @@ class QuoteDto {
   @ValidateNested({ each: true })
   @Type(() => QuoteStopDto)
   stops: QuoteStopDto[];
+  /** Garder l'ordre saisi (sinon ordre optimisé) */
+  @IsOptional() @IsBoolean() keepOrder?: boolean;
 }
 
 /** Livreur « en ligne » = position reçue il y a moins de 2 minutes */
@@ -68,7 +70,7 @@ export class PricingController {
     const grid = this.settings.gridFor(company);
     if (dto.stops.length > grid.maxStops) throw new BadRequestException(`${grid.maxStops} adresses maximum par tournée`);
     const pickup = { lat: dto.pickupLat, lng: dto.pickupLng };
-    const order = await this.geo.optimizeOrder(pickup, dto.stops);
+    const order = dto.keepOrder ? dto.stops.map((_, i) => i) : await this.geo.optimizeOrder(pickup, dto.stops);
     const ordered = order.map((i) => dto.stops[i]);
     const route = await this.geo.routeVia([pickup, ...ordered]);
     const codStops = grid.codEnabled ? ordered.filter((s) => s.cod).length : 0;

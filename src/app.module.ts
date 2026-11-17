@@ -10,6 +10,8 @@ import { StatsService } from './admin/stats.service';
 import { BillingController } from './billing/billing.controller';
 import { CreditTransaction, Payment } from './billing/billing.entities';
 import { BillingService } from './billing/billing.service';
+import { LogbookEntry } from './logbook/logbook-entry.entity';
+import { LogbookController } from './logbook/logbook.controller';
 import { Remittance } from './remittances/remittance.entity';
 import { RemittancesController } from './remittances/remittances.controller';
 import { RemittancesService } from './remittances/remittances.service';
@@ -49,12 +51,12 @@ import { UsersController } from './users/users.controller';
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance],
+      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry],
       // Crée / met à jour les tables au démarrage (DB_SYNC=false pour désactiver).
       // À remplacer par des migrations TypeORM quand le schéma sera stabilisé.
       synchronize: process.env.DB_SYNC !== 'false',
     }),
-    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance]),
+    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
@@ -73,6 +75,7 @@ import { UsersController } from './users/users.controller';
     PricingController,
     TrackController,
     RemittancesController,
+    LogbookController,
     UploadsController,
     UsersController,
   ],

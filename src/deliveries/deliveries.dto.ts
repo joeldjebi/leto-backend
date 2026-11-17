@@ -70,6 +70,9 @@ export class CreateDeliveryDto {
   stops: StopDto[];
 
   @IsOptional() @IsString() @MaxLength(500) courierComment?: string;
+
+  /** Garder l'ordre des arrêts tel que saisi (sinon ordre de passage optimisé) */
+  @IsOptional() @IsBoolean() keepOrder?: boolean;
 }
 
 export class ConfirmStopDto {
@@ -129,4 +132,9 @@ export class ReturnDto {
 
 export class DisputeStopDto {
   @IsOptional() @IsString() @MaxLength(500) note?: string;
+}
+
+/** L'entreprise fixe l'ordre de passage des arrêts encore à livrer */
+export class ReorderStopsDto {
+  @IsArray() @ArrayMinSize(1) @IsUUID('all', { each: true }) stopIds: string[];
 }

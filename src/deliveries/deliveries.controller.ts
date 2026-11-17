@@ -4,7 +4,7 @@ import { Role } from '../users/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/user.entity';
-import { AdminCancelDto, AnswerCancelDto, AssignDto, CancelRequestDto, CancelStopDto, CompanyOrderDto, ConfirmStopDto, CreateDeliveryDto, DeclineAssignmentDto, DisputeStopDto, FailStopDto, ResolveDisputeDto, ReturnDto } from './deliveries.dto';
+import { AdminCancelDto, AnswerCancelDto, AssignDto, CancelRequestDto, CancelStopDto, CompanyOrderDto, ConfirmStopDto, CreateDeliveryDto, DeclineAssignmentDto, DisputeStopDto, FailStopDto, ReorderStopsDto, ResolveDisputeDto, ReturnDto } from './deliveries.dto';
 import { DeliveriesService } from './deliveries.service';
 
 @Controller('deliveries')
@@ -111,6 +111,12 @@ export class DeliveriesController {
   @Roles(Role.COMPANY)
   assign(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AssignDto) {
     return this.service.assign(user.companyId, id, dto.driverId ?? null);
+  }
+
+  @Post(':id/stops/order')
+  @Roles(Role.COMPANY)
+  reorder(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ReorderStopsDto) {
+    return this.service.reorderStops(user.companyId, id, dto.stopIds);
   }
 
   @Get('driver')

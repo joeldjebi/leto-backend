@@ -85,14 +85,14 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     const pickup = { lat: dto.pickupLat, lng: dto.pickupLng };
 
     // Ordre de passage optimisé, puis itinéraire complet (le prix est toujours calculé ici)
-    const order = await this.geo.optimizeOrder(pickup, dto.stops);
+    const order = dto.keepOrder ? dto.stops.map((_, i) => i) : await this.geo.optimizeOrder(pickup, dto.stops);
     const ordered = order.map((i) => dto.stops[i]);
     const route = await this.geo.routeVia([pickup, ...ordered]);
     const codStops = ordered.filter((s) => (s.codAmount ?? 0) > 0).length;
 
     // companyId du formulaire = entreprise choisie (cible), à ne pas confondre avec l'entreprise du livreur
-    const { companyId: _target, ...fields } = dto;
-    void _target;
+    const { companyId: _target, keepOrder: _keep, ...fields } = dto;
+    void _target; void _keep;
     const delivery = await this.repo.save(
       this.repo.create({
         ...fields,
@@ -170,6 +170,32 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     await this.repo.update(id, { assignedDriverId: driverId, assignmentNote: null });
     if (previous && previous !== driverId) this.tracking.emitToUser(previous, 'delivery:unassigned', { deliveryId: id });
     if (driverId) this.tracking.emitToUser(driverId, 'delivery:assigned', { deliveryId: id });
+    return this.notify(await this.findOne(id, true));
+  }
+
+  /**
+   * L'entreprise fixe l'ordre de passage : les arrêts déjà traités gardent leur place en tête,
+   * les arrêts à livrer suivent dans l'ordre donné. Le prix ne change pas.
+   */
+  async reorderStops(companyId: string, id: string, stopIds: string[]) {
+    const d = await this.findOne(id);
+    if (d.companyId !== companyId && d.targetCompanyId !== companyId) throw new NotFoundException('Course introuvable');
+    if (d.status === DeliveryStatus.DELIVERED || d.status === DeliveryStatus.CANCELLED) {
+      throw new BadRequestException('Cette course est terminée');
+    }
+    const pending = d.stops.filter((s) => s.status === StopStatus.PENDING);
+    const ids = new Set(pending.map((s) => s.id));
+    if (stopIds.length !== pending.length || new Set(stopIds).size !== stopIds.length || stopIds.some((x) => !ids.has(x))) {
+      throw new BadRequestException('Donnez tous les arrêts à livrer, chacun une fois');
+    }
+    const done = d.stops.filter((s) => s.status !== StopStatus.PENDING).sort((a, b) => a.position - b.position);
+    const next = [...done, ...stopIds.map((x) => pending.find((s) => s.id === x)!)];
+    await this.dataSource.transaction(async (m) => {
+      for (const [position, s] of next.entries()) await m.update(DeliveryStop, s.id, { position });
+      const route = await this.geo.routeVia([{ lat: d.pickupLat, lng: d.pickupLng }, ...next]).catch(() => null);
+      if (route) await m.update(Delivery, id, { distanceKm: Math.round(route.distanceKm * 10) / 10, durationMin: route.durationMin });
+    });
+    if (d.driverId) this.tracking.emitToUser(d.driverId, 'delivery:reordered', { deliveryId: id });
     return this.notify(await this.findOne(id, true));
   }
 
