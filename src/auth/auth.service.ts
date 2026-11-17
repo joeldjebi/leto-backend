@@ -119,7 +119,12 @@ export class AuthService implements OnApplicationBootstrap {
     const changes: Partial<User> = {};
     if (dto.name !== undefined) changes.name = dto.name.trim();
     if (dto.accountType !== undefined && user.role === Role.CLIENT) changes.accountType = dto.accountType;
-    if (dto.avatarUrl !== undefined) changes.avatarUrl = dto.avatarUrl;
+    if (dto.avatarUrl !== undefined) {
+      // Livreur indépendant : sa photo de profil est le selfie de son dossier
+      const independent = user.companyId && (await this.users.manager.query(`SELECT 1 FROM companies WHERE id = $1 AND independent`, [user.companyId])).length;
+      if (independent) throw new BadRequestException('Votre photo de profil est le selfie de votre dossier');
+      changes.avatarUrl = dto.avatarUrl;
+    }
 
     const phoneChange = dto.phone !== undefined && dto.phone !== user.phone;
     if (phoneChange || dto.newPassword) {
@@ -137,7 +142,7 @@ export class AuthService implements OnApplicationBootstrap {
     return this.me(id);
   }
 
-  private async session(user: User) {
+  async session(user: User) {
     const token = await this.jwt.signAsync({
       sub: user.id,
       role: user.role,

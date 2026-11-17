@@ -121,6 +121,10 @@ export class Delivery {
   /** Course adressée à une entreprise : seuls ses livreurs la voient (null = toutes) */
   @Column({ type: 'uuid', nullable: true })
   targetCompanyId: string | null;
+
+  /** Course adressée aux livreurs indépendants (choix explicite du client) */
+  @Column({ default: false })
+  forIndependents: boolean;
   /** CLIENT (commandée dans l'app) ou COMPANY (créée par l'entreprise) */
   @Column({ type: 'varchar', length: 10, default: 'CLIENT' })
   source: 'CLIENT' | 'COMPANY';

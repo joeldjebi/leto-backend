@@ -19,7 +19,7 @@ export class CompaniesService {
   ) {}
 
   findAll() {
-    return this.companies.find({ order: { createdAt: 'DESC' } });
+    return this.companies.find({ where: { independent: false }, order: { createdAt: 'DESC' } });
   }
 
   /** Crée l'entreprise et le compte de son gérant dans une seule transaction */
@@ -89,7 +89,7 @@ export class CompaniesService {
               (SELECT count(*)::int FROM delivery_stops s JOIN deliveries d ON d.id = s."deliveryId" WHERE d."companyId" = c.id AND s.status = 'DELIVERED') AS delivered,
               (SELECT count(*)::int FROM delivery_stops s JOIN deliveries d ON d.id = s."deliveryId" WHERE d."companyId" = c.id AND s.status = 'FAILED') AS failed
          FROM companies c
-        WHERE c.active AND c."subscriptionEndsAt" > now()
+        WHERE c.active AND NOT c.independent AND c."subscriptionEndsAt" > now()
         ORDER BY c.name`,
     );
     const companies = await this.companies.findBy({ id: In(rows.map((r) => r.id)) });

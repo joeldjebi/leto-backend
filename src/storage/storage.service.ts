@@ -78,8 +78,9 @@ export class StorageService {
         this.logger.error(`Envoi Wasabi impossible (${(e as Error).name}: ${(e as Error).message}) — fichier gardé en local`);
       }
     }
-    mkdirSync(LOCAL_UPLOAD_DIR, { recursive: true });
-    await writeFile(join(LOCAL_UPLOAD_DIR, name), body);
+    const dir = folder === 'identity' ? join(LOCAL_UPLOAD_DIR, 'identity') : LOCAL_UPLOAD_DIR;
+    mkdirSync(dir, { recursive: true });
+    await writeFile(join(dir, name), body);
   }
 
   /** Lien de lecture signé (Wasabi), valable [expiresIn] secondes */
@@ -87,8 +88,8 @@ export class StorageService {
     return getSignedUrl(this.s3, new GetObjectCommand({ Bucket: this.bucket(folder), Key: this.key(folder, name) }), { expiresIn });
   }
 
-  localPath(name: string) {
-    return join(process.cwd(), LOCAL_UPLOAD_DIR, name);
+  localPath(name: string, folder: StorageFolder = 'photos') {
+    return folder === 'identity' ? join(process.cwd(), LOCAL_UPLOAD_DIR, 'identity', name) : join(process.cwd(), LOCAL_UPLOAD_DIR, name);
   }
 
   async remove(name: string, folder: StorageFolder = 'photos') {

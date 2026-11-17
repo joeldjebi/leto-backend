@@ -65,7 +65,7 @@ export class StatsService {
          FROM users WHERE true ${companyId ? 'AND "companyId" = $1' : ''}`,
       companyId ? [companyId] : [],
     );
-    const [c] = companyId ? [{ companies: 1 }] : await this.db.query(`SELECT count(*)::int AS companies FROM companies`);
+    const [c] = companyId ? [{ companies: 1 }] : await this.db.query(`SELECT count(*)::int AS companies FROM companies WHERE NOT independent`);
 
     const top = async (sql: string) => this.db.query(sql, p(since));
     const topCompanies = companyId

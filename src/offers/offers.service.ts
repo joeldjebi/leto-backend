@@ -5,6 +5,7 @@ import { BillingService } from '../billing/billing.service';
 import { AuthUser } from '../common/decorators';
 import { Delivery, DeliveryStatus } from '../deliveries/delivery.entity';
 import { haversineKm } from '../geo/communes';
+import { IndependentsService } from '../independents/independents.service';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { Offer, OfferStatus } from './offer.entity';
 
@@ -22,6 +23,7 @@ export class OffersService {
     @InjectRepository(Delivery) private deliveries: Repository<Delivery>,
     private tracking: TrackingGateway,
     private billing: BillingService,
+    private independents: IndependentsService,
   ) {}
 
   // ---------- Livreur ----------
@@ -31,6 +33,9 @@ export class OffersService {
     if (!d || d.status !== DeliveryStatus.PENDING) throw new BadRequestException('Cette course n’est plus disponible');
     if (d.targetCompanyId && d.targetCompanyId !== user.companyId) throw new BadRequestException('Course réservée à une autre entreprise');
     if (d.assignedDriverId && d.assignedDriverId !== user.sub) throw new BadRequestException('Course affectée à un autre livreur');
+    if (d.forIndependents !== (await this.independents.isIndependent(user.companyId))) {
+      throw new BadRequestException(d.forIndependents ? 'Course réservée aux livreurs indépendants' : 'Course réservée aux livreurs des entreprises');
+    }
     if (price <= d.price) {
       throw new BadRequestException(`Proposez plus de ${d.price} F, ou acceptez la course au prix affiché`);
     }
@@ -80,8 +85,10 @@ export class OffersService {
       id: o.id,
       price: o.price,
       expiresAt: o.expiresAt,
-      driver: { name: o.driver.name },
-      company: o.company ? { name: o.company.name } : null,
+      driver: { name: o.driver.name, avatarUrl: o.driver.avatarUrl, vehicleType: o.driver.vehicleType },
+      // Livreur indépendant : toujours signalé au client (pas d'entreprise derrière lui)
+      independent: !!o.company?.independent,
+      company: o.company && !o.company.independent ? { name: o.company.name } : null,
       // Délai d'arrivée estimé du livreur au point de départ (20 km/h en ville)
       etaMin:
         o.driver.lastLat != null && d.pickupLat != null

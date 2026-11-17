@@ -19,6 +19,7 @@ import { GeoService } from '../geo/geo.service';
 import { Role, User } from '../users/user.entity';
 import { SettingsService } from '../settings/settings.service';
 import { computePrice, DeliverySpeed, MAX_STOPS, stopDiscountPct, VehicleType } from './pricing';
+import { IndependentsService } from '../independents/independents.service';
 import { SurchargeService } from './surcharge.service';
 
 class QuoteStopDto {
@@ -54,6 +55,7 @@ export class PricingController {
     private surcharge: SurchargeService,
     @InjectRepository(User) private users: Repository<User>,
     @InjectRepository(Company) private companies: Repository<Company>,
+    private independents: IndependentsService,
   ) {}
 
   /** Grille tarifaire (affichage) */
@@ -117,7 +119,12 @@ export class PricingController {
    * [companyId] : uniquement les livreurs de l'entreprise choisie.
    */
   @Get('drivers')
-  async nearbyDrivers(@Query('lat') latStr: string, @Query('lng') lngStr: string, @Query('companyId') companyId?: string) {
+  async nearbyDrivers(
+    @Query('lat') latStr: string,
+    @Query('lng') lngStr: string,
+    @Query('companyId') companyId?: string,
+    @Query('independent') independent?: string,
+  ) {
     const lat = Number(latStr);
     const lng = Number(lngStr);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
@@ -125,8 +132,12 @@ export class PricingController {
       where: { role: Role.DRIVER, active: true, lastLocationAt: MoreThan(new Date(Date.now() - ONLINE_WINDOW_MS)), ...(companyId ? { companyId } : {}) },
       relations: { company: true },
     });
+    // Livreurs indépendants validés seulement quand le client les a choisis ; jamais mélangés aux entreprises
+    const li = independent === '1';
+    const approved = li ? await this.independents.approvedCompanyIds() : new Set<string>();
     return drivers
       .filter((d) => d.company?.active !== false && d.lastLat != null && d.lastLng != null)
+      .filter((d) => (li ? approved.has(d.companyId!) : !d.company?.independent))
       .map((d) => ({ d, km: haversineKm(lat, lng, d.lastLat!, d.lastLng!) }))
       .filter((x) => x.km <= 8)
       .sort((a, b) => a.km - b.km)
@@ -148,7 +159,7 @@ export class PricingController {
       where: { role: Role.DRIVER, active: true, lastLocationAt: MoreThan(new Date(Date.now() - ONLINE_WINDOW_MS)) },
       relations: { company: true },
     });
-    const online = drivers.filter((d) => d.company?.active !== false && d.lastLat != null);
+    const online = drivers.filter((d) => d.company?.active !== false && !d.company?.independent && d.lastLat != null);
     if (!online.length || !Number.isFinite(lat) || !Number.isFinite(lng)) return { minutes: null, nearbyDrivers: 0 };
     const km = Math.min(...online.map((d) => haversineKm(lat, lng, d.lastLat, d.lastLng))) * 1.35;
     return {

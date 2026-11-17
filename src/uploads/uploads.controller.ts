@@ -33,6 +33,22 @@ export class UploadsController {
     return { url: `/uploads/${name}` };
   }
 
+  /** Pièces d'identité (dossier des livreurs indépendants) : stockées à part, jamais publiques */
+  @Post('identity')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      storage: memoryStorage(),
+      limits: { fileSize: 5 * 1024 * 1024 },
+      fileFilter: (_req, file, cb) => cb(null, !!EXT[file.mimetype] || file.mimetype === 'image/jpg'),
+    }),
+  )
+  async uploadIdentity(@UploadedFile() file?: Express.Multer.File) {
+    if (!file) throw new BadRequestException('Image manquante ou format non accepté (jpg, png, webp, heic, 5 Mo max)');
+    const name = `${randomUUID()}${EXT[file.mimetype] ?? '.jpg'}`;
+    await this.storage.save(name, file.buffer, file.mimetype === 'image/jpg' ? 'image/jpeg' : file.mimetype, 'identity');
+    return { url: `/identity/${name}` };
+  }
+
   /** Lecture publique (noms aléatoires impossibles à deviner) : lien signé Wasabi ou fichier local */
   @Public()
   @Get(':name')

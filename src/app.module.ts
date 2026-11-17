@@ -12,6 +12,9 @@ import { CreditTransaction, Payment } from './billing/billing.entities';
 import { BillingService } from './billing/billing.service';
 import { SurchargeService } from './pricing/surcharge.service';
 import { LogbookEntry } from './logbook/logbook-entry.entity';
+import { IndependentProfile } from './independents/independent-profile.entity';
+import { IdentityFilesController, IndependentsController } from './independents/independents.controller';
+import { IndependentsService } from './independents/independents.service';
 import { LogbookController } from './logbook/logbook.controller';
 import { Remittance } from './remittances/remittance.entity';
 import { RemittancesController } from './remittances/remittances.controller';
@@ -52,12 +55,12 @@ import { UsersController } from './users/users.controller';
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry],
+      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile],
       // Crée / met à jour les tables au démarrage (DB_SYNC=false pour désactiver).
       // À remplacer par des migrations TypeORM quand le schéma sera stabilisé.
       synchronize: process.env.DB_SYNC !== 'false',
     }),
-    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry]),
+    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
@@ -77,6 +80,8 @@ import { UsersController } from './users/users.controller';
     TrackController,
     RemittancesController,
     LogbookController,
+    IndependentsController,
+    IdentityFilesController,
     UploadsController,
     UsersController,
   ],
@@ -93,6 +98,7 @@ import { UsersController } from './users/users.controller';
     SurchargeService,
     RemittancesService,
     StatsService,
+    IndependentsService,
     TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

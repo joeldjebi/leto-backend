@@ -5,6 +5,7 @@ import { randomBytes, randomInt } from 'crypto';
 import { DataSource, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { SavedAddress } from '../addresses/saved-address.entity';
 import { BillingService } from '../billing/billing.service';
+import { IndependentsService } from '../independents/independents.service';
 import { AuthUser } from '../common/decorators';
 import { Company } from '../companies/company.entity';
 import { allInGrandAbidjan, haversineKm, nearestCommune } from '../geo/communes';
@@ -37,6 +38,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     private geo: GeoService,
     private settings: SettingsService,
     private billing: BillingService,
+    private independents: IndependentsService,
     private surcharge: SurchargeService,
   ) {}
 
@@ -71,6 +73,14 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     opts: { companyId?: string | null; source?: 'CLIENT' | 'COMPANY'; assignedDriverId?: string | null; priceOverride?: number } = {},
   ) {
     let company: Company | null = null;
+    const forIndependents = !opts.companyId && dto.forIndependents === true && (opts.source ?? 'CLIENT') === 'CLIENT';
+    if (forIndependents) {
+      // Choix explicite du client : livreurs indépendants, règles LETO par défaut, sans encaissement
+      if (!this.independents.config.enabled) throw new BadRequestException('Les livreurs indépendants ne sont pas disponibles pour le moment');
+      if (dto.stops.some((s) => (s.codAmount ?? 0) > 0)) {
+        throw new BadRequestException('Les livreurs indépendants ne prennent pas de paiement à la livraison : choisissez une entreprise');
+      }
+    }
     if (opts.companyId) {
       company = await this.companies.findOneBy({ id: opts.companyId });
       const subscribed = !!company?.subscriptionEndsAt && company.subscriptionEndsAt.getTime() > Date.now();
@@ -95,8 +105,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     const sur = this.surcharge.context([pickup, ...ordered]);
 
     // companyId du formulaire = entreprise choisie (cible), à ne pas confondre avec l'entreprise du livreur
-    const { companyId: _target, keepOrder: _keep, ...fields } = dto;
-    void _target; void _keep;
+    const { companyId: _target, keepOrder: _keep, forIndependents: _li, ...fields } = dto;
+    void _target; void _keep; void _li;
     const delivery = await this.repo.save(
       this.repo.create({
         ...fields,
@@ -111,6 +121,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
         returnCode: randomInt(0, 10000).toString().padStart(4, '0'),
         trackingToken: randomBytes(16).toString('hex'),
         targetCompanyId: company?.id ?? null,
+        forIndependents,
         source: opts.source ?? 'CLIENT',
         assignedDriverId: opts.assignedDriverId ?? null,
         stops: ordered.map((s, position) =>
@@ -466,9 +477,13 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
 
   /** Courses en attente (sans les numéros des destinataires tant que la course n'est pas acceptée) */
   async available(user: AuthUser) {
+    // Livreur indépendant : uniquement les courses où le client a choisi les indépendants
+    const independent = await this.independents.isIndependent(user.companyId);
+    if (independent && (await this.independents.blocker(user.companyId!))) return [];
     const list = await this.query()
       .where('d.status = :s', { s: DeliveryStatus.PENDING })
-      .andWhere('(d.targetCompanyId IS NULL OR d.targetCompanyId = :companyId)', { companyId: user.companyId })
+      .andWhere('d.forIndependents = :li', { li: independent })
+      .andWhere(independent ? 'TRUE' : '(d.targetCompanyId IS NULL OR d.targetCompanyId = :companyId)', { companyId: user.companyId })
       .andWhere('(d.assignedDriverId IS NULL OR d.assignedDriverId = :me)', { me: user.sub })
       .orderBy('d.createdAt', 'ASC')
       .addOrderBy('stop.position', 'ASC')
@@ -494,6 +509,10 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       if (!d || d.status !== DeliveryStatus.PENDING) throw new ConflictException('Course déjà prise ou indisponible');
       if (d.targetCompanyId && d.targetCompanyId !== user.companyId) throw new ForbiddenException('Course réservée à une autre entreprise');
       if (d.assignedDriverId && d.assignedDriverId !== user.sub) throw new ForbiddenException('Course affectée à un autre livreur');
+      const independent = await this.independents.isIndependent(user.companyId);
+      if (d.forIndependents !== independent) {
+        throw new ForbiddenException(independent ? 'Course réservée aux livreurs des entreprises' : 'Course réservée aux livreurs indépendants');
+      }
       const commission = await this.billing.reserve(m, user.companyId, d.price);
       const res = await m
         .createQueryBuilder()

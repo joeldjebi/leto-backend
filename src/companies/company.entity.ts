@@ -40,6 +40,10 @@ export class Company {
   @Column({ type: 'jsonb', nullable: true })
   vehicles: string[] | null;
 
+  /** « Entreprise » individuelle d'un livreur indépendant (LI) : pas d'abonnement, commission LI */
+  @Column({ default: false })
+  independent: boolean;
+
   @CreateDateColumn()
   createdAt: Date;
 }

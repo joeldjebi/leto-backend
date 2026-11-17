@@ -60,6 +60,8 @@ export class CreateDeliveryDto {
 
   /** Entreprise choisie par le client (sa grille tarifaire, ses livreurs seulement) ; absent = toutes */
   @IsOptional() @IsUUID() companyId?: string;
+  /** Le client choisit les livreurs indépendants (au lieu d'une entreprise) */
+  @IsOptional() @IsBoolean() forIndependents?: boolean;
 
   // ----- Arrêts (1 à MAX_STOPS) -----
   @IsArray()

@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, MaxLength, Min, ValidateIf } from 'class-validator';
 import { Repository } from 'typeorm';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
+import { Company } from '../companies/company.entity';
 import { Role, User } from '../users/user.entity';
 import { PaymentKind, PaymentStatus } from './billing.entities';
 import { BillingConfig, BillingService, CommissionType } from './billing.service';
@@ -83,6 +84,7 @@ export class BillingController {
   constructor(
     private billing: BillingService,
     @InjectRepository(User) private users: Repository<User>,
+    @InjectRepository(Company) private companies: Repository<Company>,
   ) {}
 
   private async name(user: AuthUser) {
@@ -91,15 +93,25 @@ export class BillingController {
 
   // ----- Gérant -----
   @Get('me')
-  @Roles(Role.COMPANY)
-  mine(@CurrentUser() user: AuthUser) {
+  @Roles(Role.COMPANY, Role.DRIVER)
+  async mine(@CurrentUser() user: AuthUser) {
+    await this.ownAccount(user);
     return this.billing.overview(user.companyId);
   }
 
   @Post('me/payments')
-  @Roles(Role.COMPANY)
+  @Roles(Role.COMPANY, Role.DRIVER)
   async submit(@CurrentUser() user: AuthUser, @Body() dto: SubmitPaymentDto) {
+    await this.ownAccount(user);
+    if (user.role === Role.DRIVER && dto.kind !== PaymentKind.TOPUP) throw new ForbiddenException('Les livreurs indépendants n’ont pas d’abonnement');
     return this.billing.submit(user.companyId, await this.name(user), dto);
+  }
+
+  /** Le gérant, ou un livreur indépendant pour son propre solde (pas un livreur d'entreprise) */
+  private async ownAccount(user: AuthUser) {
+    if (user.role !== Role.DRIVER) return;
+    const c = user.companyId ? await this.companies.findOneBy({ id: user.companyId }) : null;
+    if (!c?.independent) throw new ForbiddenException('Le solde est géré par votre entreprise');
   }
 
   // ----- Livreur -----

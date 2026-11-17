@@ -3,6 +3,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
 import { Company } from '../companies/company.entity';
 import { Delivery, DeliveryStatus } from '../deliveries/delivery.entity';
+import { IndependentsService } from '../independents/independents.service';
 import { Setting } from '../settings/setting.entity';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { CreditTransaction, CreditType, Payment, PaymentKind, PaymentStatus } from './billing.entities';
@@ -51,6 +52,7 @@ export class BillingService implements OnModuleInit {
     @InjectRepository(Payment) private payments: Repository<Payment>,
     @InjectRepository(CreditTransaction) private txs: Repository<CreditTransaction>,
     private tracking: TrackingGateway,
+    private independents: IndependentsService,
   ) {}
 
   async onModuleInit() {
@@ -91,14 +93,16 @@ export class BillingService implements OnModuleInit {
 
   // ---------- Règles ----------
 
-  rule(c: Pick<Company, 'commissionType' | 'commissionValue'>) {
+  /** Règle de commission : propre à l'entreprise, sinon règle LI (livreur indépendant) ou règle par défaut */
+  rule(c: Pick<Company, 'commissionType' | 'commissionValue'> & { independent?: boolean }) {
     const custom = c.commissionType != null && c.commissionValue != null;
-    const type = custom ? c.commissionType : this.cfg.commissionType;
-    const value = custom ? c.commissionValue : this.cfg.commissionValue;
+    const base = c.independent ? this.independents.config : this.cfg;
+    const type = custom ? c.commissionType : base.commissionType;
+    const value = custom ? c.commissionValue : base.commissionValue;
     return { type, value, custom, label: ruleLabel(type, value) };
   }
 
-  commission(c: Pick<Company, 'commissionType' | 'commissionValue'>, price: number) {
+  commission(c: Pick<Company, 'commissionType' | 'commissionValue'> & { independent?: boolean }, price: number) {
     const r = this.rule(c);
     const amount = r.type === 'PERCENT' ? Math.round((price * r.value) / 100) : Math.round(r.value);
     return { amount: Math.max(0, amount), label: r.label };
@@ -114,7 +118,9 @@ export class BillingService implements OnModuleInit {
     return row.total as number;
   }
 
+  /** Abonnement actif (les livreurs indépendants n'ont pas d'abonnement) */
   private subscribed(c: Company) {
+    if (c.independent) return true;
     return !!c.subscriptionEndsAt && c.subscriptionEndsAt.getTime() > Date.now();
   }
 
@@ -125,6 +131,7 @@ export class BillingService implements OnModuleInit {
   async reserve(m: EntityManager, companyId: string | null, price: number) {
     if (!companyId) throw new BadRequestException('Livreur sans entreprise : contactez LETO');
     const c = await m.getRepository(Company).createQueryBuilder('c').setLock('pessimistic_write').where('c.id = :id', { id: companyId }).getOne();
+    if (c?.independent) return this.reserveIndependent(m, c, price);
     if (!c || !c.active) throw new BadRequestException('Votre entreprise est suspendue : contactez votre gérant');
     if (!this.subscribed(c)) throw new BadRequestException('L’abonnement annuel de votre entreprise n’est pas actif : contactez votre gérant');
     const { amount, label } = this.commission(c, price);
@@ -133,6 +140,17 @@ export class BillingService implements OnModuleInit {
       this.tracking.emitToCompany(companyId, 'billing:low', { available, needed: amount });
       throw new BadRequestException('Crédit de votre entreprise insuffisant pour cette course : demandez à votre gérant de recharger');
     }
+    return { commissionAmount: amount, commissionRule: label };
+  }
+
+  /** Livreur indépendant : dossier validé, LI activés par LETO, solde suffisant */
+  private async reserveIndependent(m: EntityManager, c: Company, price: number) {
+    const blocked = await this.independents.blocker(c.id);
+    if (blocked) throw new BadRequestException(blocked);
+    if (!c.active) throw new BadRequestException('Votre compte est suspendu par LETO');
+    const { amount, label } = this.commission(c, price);
+    const available = c.credit - (await this.reserved(m, c.id));
+    if (available < amount) throw new BadRequestException(`Solde insuffisant pour cette course (commission ${amount} F) : rechargez votre compte`);
     return { commissionAmount: amount, commissionRule: label };
   }
 
@@ -145,6 +163,13 @@ export class BillingService implements OnModuleInit {
   async driverStatus(companyId: string | null) {
     if (!companyId) return { ok: false, reason: 'Livreur sans entreprise' };
     const c = await this.companies.findOneBy({ id: companyId });
+    if (c?.independent) {
+      const blocked = await this.independents.blocker(c.id);
+      if (blocked) return { ok: false, reason: blocked, independent: true };
+      const left = c.credit - (await this.reserved(this.db.manager, companyId));
+      if (left <= 0) return { ok: false, reason: 'Solde épuisé : rechargez votre compte pour prendre des courses', independent: true };
+      return { ok: true, reason: null, independent: true };
+    }
     if (!c?.active) return { ok: false, reason: 'Votre entreprise est suspendue' };
     if (!this.subscribed(c)) return { ok: false, reason: 'Abonnement de votre entreprise expiré : contactez votre gérant' };
     const available = c.credit - (await this.reserved(this.db.manager, companyId));
