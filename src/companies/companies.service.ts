@@ -124,7 +124,7 @@ export class CompaniesService {
     });
   }
 
-  async addDriver(companyId: string, dto: PersonDto) {
+  async addDriver(companyId: string, dto: PersonDto & { vehicleType?: string }) {
     await this.ensurePhoneFree(dto.phone);
     const driver = await this.users.save({
       name: dto.name,
@@ -132,9 +132,16 @@ export class CompaniesService {
       passwordHash: await bcrypt.hash(dto.password, 10),
       role: Role.DRIVER,
       companyId,
+      vehicleType: dto.vehicleType ?? 'MOTO',
     });
     delete driver.passwordHash;
     return driver;
+  }
+
+  async setDriverVehicle(companyId: string, driverId: string, vehicleType: string) {
+    const res = await this.users.update({ id: driverId, companyId, role: Role.DRIVER }, { vehicleType });
+    if (!res.affected) throw new BadRequestException('Livreur introuvable dans votre entreprise');
+    return this.users.findOneBy({ id: driverId });
   }
 
   async setDriverActive(companyId: string, driverId: string, active: boolean) {

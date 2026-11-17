@@ -1,8 +1,7 @@
 import { Body, Controller, Delete, Get, Param, ParseBoolPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
-import { PersonDto } from '../common/dto';
 import { Role } from '../users/user.entity';
-import { CreateCompanyDto, UpdateCompanyDto, VehiclesDto } from './companies.dto';
+import { CreateCompanyDto, DriverDto, DriverVehicleDto, UpdateCompanyDto, VehiclesDto } from './companies.dto';
 import { CompaniesService } from './companies.service';
 
 @Controller('companies')
@@ -75,8 +74,14 @@ export class CompaniesController {
 
   @Post('me/drivers')
   @Roles(Role.COMPANY)
-  addDriver(@CurrentUser() user: AuthUser, @Body() dto: PersonDto) {
+  addDriver(@CurrentUser() user: AuthUser, @Body() dto: DriverDto) {
     return this.service.addDriver(user.companyId, dto);
+  }
+
+  @Patch('me/drivers/:id/vehicle')
+  @Roles(Role.COMPANY)
+  setDriverVehicle(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: DriverVehicleDto) {
+    return this.service.setDriverVehicle(user.companyId, id, dto.vehicleType);
   }
 
   @Patch('me/drivers/:id/active')

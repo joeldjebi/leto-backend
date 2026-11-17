@@ -136,6 +136,7 @@ export class PricingController {
         lat: Math.round(d.lastLat! * 10000) / 10000,
         lng: Math.round(d.lastLng! * 10000) / 10000,
         km: Math.round(km * 10) / 10,
+        vehicle: d.vehicleType ?? 'MOTO',
       }));
   }
 

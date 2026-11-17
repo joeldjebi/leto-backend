@@ -51,6 +51,10 @@ export class User {
   @Column({ default: false })
   invited: boolean;
 
+  /** Engin du livreur (MOTO, CAR, CARGO) : icône sur la carte */
+  @Column({ type: 'varchar', length: 10, default: 'MOTO' })
+  vehicleType: string;
+
   /** Dernière position GPS connue (livreurs) — mise à jour en temps réel */
   @Column({ type: 'double precision', nullable: true })
   lastLat: number | null;

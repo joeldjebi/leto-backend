@@ -1,5 +1,5 @@
 import { ArrayMinSize, IsArray, IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
-import { PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
+import { PersonDto, PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
 
 export class CreateCompanyDto {
   @IsString()
@@ -25,6 +25,16 @@ export class CreateCompanyDto {
 export class UpdateCompanyDto {
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(100) name?: string;
   @IsOptional() @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) phone?: string;
+}
+
+/** Nouveau livreur : identité et engin */
+export class DriverDto extends PersonDto {
+  @IsOptional() @IsIn(['MOTO', 'CAR', 'CARGO'], { message: 'Engin : moto, voiture ou cargo' }) vehicleType?: string;
+}
+
+/** Engin d'un livreur */
+export class DriverVehicleDto {
+  @IsIn(['MOTO', 'CAR', 'CARGO'], { message: 'Engin : moto, voiture ou cargo' }) vehicleType: string;
 }
 
 /** Engins dont dispose l'entreprise */
