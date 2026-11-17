@@ -316,7 +316,12 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
         ? {
             name: d.driver.name,
             phone: active ? d.driver.phone : null,
-            position: active && live && d.driver.lastLat != null ? { lat: d.driver.lastLat, lng: d.driver.lastLng, at: d.driver.lastLocationAt } : null,
+            // Dernière position connue (jusqu'à 30 min) ; `live` : mise à jour il y a moins de 2 min
+            position:
+              active && d.driver.lastLat != null && d.driver.lastLocationAt && Date.now() - d.driver.lastLocationAt.getTime() < 30 * 60_000
+                ? { lat: d.driver.lastLat, lng: d.driver.lastLng, at: d.driver.lastLocationAt, live: !!live }
+                : null,
+            vehicle: d.driver.vehicleType ?? d.vehicleType,
           }
         : null,
       etaMin: approach ? Math.max(1, approach.durationMin) : etaMin,
