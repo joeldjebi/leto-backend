@@ -145,7 +145,7 @@ export class DeliveriesController {
     @Param('stopId', ParseUUIDPipe) stopId: string,
     @Body() dto: ConfirmStopDto,
   ) {
-    return this.service.deliverStop(user.sub, id, stopId, dto.code);
+    return this.service.deliverStop(user.sub, id, stopId, dto.code ?? '');
   }
 
   @Post(':id/stops/:stopId/fail')

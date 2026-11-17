@@ -133,6 +133,7 @@ export class SettingsService implements OnModuleInit {
     if (typeof input.codEnabled === 'boolean') out.codEnabled = input.codEnabled;
     if (typeof input.cancelFeeEnabled === 'boolean') out.cancelFeeEnabled = input.cancelFeeEnabled;
     if (typeof input.returnCodeEnabled === 'boolean') out.returnCodeEnabled = input.returnCodeEnabled;
+    if (typeof input.deliveryCodeEnabled === 'boolean') out.deliveryCodeEnabled = input.deliveryCodeEnabled;
     if (input.cancelFeeType === 'PERCENT' || input.cancelFeeType === 'FIXED') out.cancelFeeType = input.cancelFeeType;
     if (typeof input.rev === 'number') out.rev = input.rev;
     for (const k of ['multiStopDiscountPct', 'multiStopDiscountMaxPct'] as const) {

@@ -274,8 +274,25 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       active && live && target && d.driver.lastLat != null
         ? Math.max(1, Math.ceil(((haversineKm(d.driver.lastLat, d.driver.lastLng, target.lat, target.lng) * 1.35) / 20) * 60))
         : null;
+    // Itinéraire réel : la tournée (départ → arrêts restants) et l'approche du livreur vers sa prochaine étape
+    const remaining = d.stops.filter((s) => s.status === StopStatus.PENDING);
+    const tourPoints = [
+      ...(d.status === DeliveryStatus.PICKED_UP ? [] : [{ lat: d.pickupLat, lng: d.pickupLng }]),
+      ...(d.status === DeliveryStatus.DELIVERED || d.status === DeliveryStatus.CANCELLED ? d.stops : remaining).map((s) => ({ lat: s.lat, lng: s.lng })),
+    ];
+    const tour = tourPoints.length >= 2 ? await this.geo.routeVia(tourPoints).catch(() => null) : null;
+    const driverPos = active && live && d.driver.lastLat != null ? { lat: d.driver.lastLat, lng: d.driver.lastLng } : null;
+    // Position arrondie (~100 m) : l'itinéraire d'approche est réutilisé tant que le livreur n'a pas beaucoup bougé
+    const approach =
+      driverPos && target
+        ? await this.geo
+            .routeVia([{ lat: Math.round(driverPos.lat * 1000) / 1000, lng: Math.round(driverPos.lng * 1000) / 1000 }, target])
+            .catch(() => null)
+        : null;
     return {
       status: d.status,
+      route: tour?.points ?? null,
+      approach: approach?.points ?? null,
       createdAt: d.createdAt,
       acceptedAt: d.acceptedAt,
       pickedUpAt: d.pickedUpAt,
@@ -302,7 +319,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
             position: active && live && d.driver.lastLat != null ? { lat: d.driver.lastLat, lng: d.driver.lastLng, at: d.driver.lastLocationAt } : null,
           }
         : null,
-      etaMin,
+      etaMin: approach ? Math.max(1, approach.durationMin) : etaMin,
       nextStop: next ? next.position : null,
     };
   }
@@ -583,7 +600,10 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
   async deliverStop(driverId: string, id: string, stopId: string, code: string) {
     const d = await this.findOne(id, true);
     const stop = this.driverStop(d, driverId, stopId);
-    if (stop.confirmationCode !== code) throw new BadRequestException('Code incorrect');
+    // Code du destinataire exigé seulement si l'admin l'a activé
+    if (this.settings.pricing.deliveryCodeEnabled !== false && stop.confirmationCode !== code) {
+      throw new BadRequestException(code ? 'Code incorrect' : 'Code du destinataire obligatoire');
+    }
     await this.stops.update(stopId, { status: StopStatus.DELIVERED, deliveredAt: new Date() });
     this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Colis livré', body: `Livré à ${stop.recipientName}`, deliveryId: id });
     return this.afterStop(id);

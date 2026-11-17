@@ -7,6 +7,7 @@ import { MapSettings, MapStyleService } from '../geo/map-style.service';
 import { SettingsService } from '../settings/settings.service';
 import { SurchargeService } from '../pricing/surcharge.service';
 import { Role, User } from '../users/user.entity';
+import { TrackingGateway } from '../tracking/tracking.gateway';
 import { StatsService } from './stats.service';
 
 /** Back-office : indicateurs (SA et gérants), tarifs et règles (SA) */
@@ -17,6 +18,7 @@ export class AdminController {
     private settings: SettingsService,
     private mapStyle: MapStyleService,
     private surcharge: SurchargeService,
+    private tracking: TrackingGateway,
     @InjectRepository(User) private users: Repository<User>,
   ) {}
 
@@ -64,7 +66,10 @@ export class AdminController {
   @Roles(Role.SUPER_ADMIN)
   async updateMap(@CurrentUser() user: AuthUser, @Body() body: Partial<MapSettings>) {
     const me = await this.users.findOneBy({ id: user.sub });
-    return this.mapStyle.update(body, me?.name ?? 'Super Admin');
+    const res = await this.mapStyle.update(body, me?.name ?? 'Super Admin');
+    // Fond de carte changé : back-office, page de suivi et apps se mettent à jour tout de suite
+    this.tracking.server?.emit('map:changed', {});
+    return res;
   }
 
   @Post('settings/reset')

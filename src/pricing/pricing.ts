@@ -55,6 +55,8 @@ export interface PricingGrid {
   cancelFreeMinutes: number;
   /** Colis non livrés : retour à l'expéditeur confirmé par un code */
   returnCodeEnabled: boolean;
+  /** Livraison confirmée par le code à 4 chiffres du destinataire (sinon le livreur valide seul) */
+  deliveryCodeEnabled: boolean;
   /** Sans réponse de l'expéditeur, l'annulation signalée par le livreur est acceptée après ces minutes */
   cancelRequestAutoMin: number;
   /** Tournées : réduction (%) par arrêt au-delà du premier, plafonnée */
@@ -139,6 +141,7 @@ export const defaultGrid = (): PricingGrid => ({
   cancelFeeValue: 500,
   cancelFreeMinutes: 2,
   returnCodeEnabled: false,
+  deliveryCodeEnabled: true,
   cancelRequestAutoMin: 10,
   multiStopDiscountPct: 5,
   multiStopDiscountMaxPct: 25,

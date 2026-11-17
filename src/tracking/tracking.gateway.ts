@@ -58,6 +58,14 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
    */
   afterInit(server: Server) {
     server.use(async (socket, next) => {
+      // Page publique de suivi : connexion anonyme limitée à la course du lien
+      const trackToken = socket.handshake.auth?.trackToken;
+      if (typeof trackToken === 'string') {
+        const d = /^[0-9a-f]{32}$/.test(trackToken) ? await this.deliveries.findOneBy({ trackingToken: trackToken }).catch(() => null) : null;
+        if (!d) return next(new Error('Lien de suivi invalide'));
+        socket.data.track = d.id;
+        return next();
+      }
       try {
         const user: AuthUser = await this.jwt.verifyAsync(socket.handshake.auth?.token);
         const account = await this.users.findOne({ where: { id: user.sub }, relations: { company: true } });
@@ -71,6 +79,10 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
   }
 
   handleConnection(socket: Socket) {
+    if (socket.data.track) {
+      socket.join(`delivery:${socket.data.track}`);
+      return;
+    }
     const user: AuthUser = socket.data.user;
     if (!user) return socket.disconnect(true);
     socket.join(`user:${user.sub}`);

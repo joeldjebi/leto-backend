@@ -78,8 +78,10 @@ export class CreateDeliveryDto {
 }
 
 export class ConfirmStopDto {
+  /** Facultatif si l'admin a désactivé la confirmation par code */
+  @IsOptional()
   @Length(4, 4, { message: 'Le code fait 4 chiffres' })
-  code: string;
+  code?: string;
 }
 
 export class FailStopDto {
