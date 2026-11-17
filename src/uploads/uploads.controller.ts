@@ -8,7 +8,7 @@ import { Public } from '../common/decorators';
 import { StorageService } from '../storage/storage.service';
 
 const EXT: Record<string, string> = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/heic': '.heic' };
-const NAME_REGEX = /^[0-9a-f-]{36}\.(jpg|png|webp|heic)$/;
+const NAME_REGEX = /^[0-9a-f-]{36}\.(jpg|png|webp|heic|wav)$/;
 
 /**
  * Photos (adresses, preuves d'échec) : envoyées par l'app, stockées sur Wasabi (ou en local en dev).

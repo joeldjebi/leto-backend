@@ -6,6 +6,7 @@ import { DataSource, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { SavedAddress } from '../addresses/saved-address.entity';
 import { BillingService } from '../billing/billing.service';
 import { IndependentsService } from '../independents/independents.service';
+import { NotifyService } from '../notifications/notify.service';
 import { AuthUser } from '../common/decorators';
 import { Company } from '../companies/company.entity';
 import { allInGrandAbidjan, haversineKm, nearestCommune } from '../geo/communes';
@@ -39,6 +40,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     private settings: SettingsService,
     private billing: BillingService,
     private independents: IndependentsService,
+    private push: NotifyService,
     private surcharge: SurchargeService,
   ) {}
 
@@ -138,6 +140,13 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     await this.saveToAddressBook(clientId, ordered);
     if (opts.assignedDriverId) {
       this.tracking.emitToUser(opts.assignedDriverId, 'delivery:assigned', { deliveryId: delivery.id });
+      this.push.send([opts.assignedDriverId], 'ASSIGNED', {
+        title: 'Course affectée par votre entreprise',
+        body: `${delivery.price.toLocaleString('fr-FR')} F · départ ${delivery.pickupCommune ?? ''}`.trim(),
+        deliveryId: delivery.id,
+      });
+    } else {
+      void this.push.newOrder(delivery, ordered.length);
     }
     if (company) this.tracking.emitToCompany(company.id, 'delivery:new', { deliveryId: delivery.id });
     return this.notify(await this.findOne(delivery.id, true));
@@ -184,8 +193,18 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     if (driverId) await this.companyDriver(companyId, driverId);
     const previous = d.assignedDriverId;
     await this.repo.update(id, { assignedDriverId: driverId, assignmentNote: null });
-    if (previous && previous !== driverId) this.tracking.emitToUser(previous, 'delivery:unassigned', { deliveryId: id });
-    if (driverId) this.tracking.emitToUser(driverId, 'delivery:assigned', { deliveryId: id });
+    if (previous && previous !== driverId) {
+      this.tracking.emitToUser(previous, 'delivery:unassigned', { deliveryId: id });
+      this.push.send([previous], 'UPDATED', { title: 'Affectation retirée', body: 'Votre entreprise a retiré cette course', deliveryId: id });
+    }
+    if (driverId) {
+      this.tracking.emitToUser(driverId, 'delivery:assigned', { deliveryId: id });
+      this.push.send([driverId], 'ASSIGNED', {
+        title: 'Course affectée par votre entreprise',
+        body: `${d.price.toLocaleString('fr-FR')} F · départ ${d.pickupCommune ?? ''}`.trim(),
+        deliveryId: id,
+      });
+    }
     return this.notify(await this.findOne(id, true));
   }
 
@@ -211,7 +230,10 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       const route = await this.geo.routeVia([{ lat: d.pickupLat, lng: d.pickupLng }, ...next]).catch(() => null);
       if (route) await m.update(Delivery, id, { distanceKm: Math.round(route.distanceKm * 10) / 10, durationMin: route.durationMin });
     });
-    if (d.driverId) this.tracking.emitToUser(d.driverId, 'delivery:reordered', { deliveryId: id });
+    if (d.driverId) {
+      this.tracking.emitToUser(d.driverId, 'delivery:reordered', { deliveryId: id });
+      this.push.send([d.driverId], 'UPDATED', { title: 'Ordre de passage modifié', body: 'Votre entreprise a changé l’ordre des arrêts', deliveryId: id });
+    }
     return this.notify(await this.findOne(id, true));
   }
 
@@ -234,7 +256,9 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Cette course est déjà ouverte à tous les livreurs');
     }
     await this.repo.update(id, { targetCompanyId: null, assignedDriverId: null });
-    return this.notify(await this.findOne(id, true));
+    const opened = await this.findOne(id, true);
+    void this.push.newOrder(opened, opened.stops.length);
+    return this.notify(opened);
   }
 
   /** Lien de suivi public : informations sans données personnelles sensibles (ni codes, ni numéros des destinataires) */
@@ -352,6 +376,13 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     await this.closeOffers(id);
     if (d.driverId) {
       this.tracking.emitToUser(d.driverId, 'delivery:cancelled', { deliveryId: id, reason: 'Annulée par l’expéditeur', fee });
+      this.push.send([d.driverId], 'CANCELLED', {
+        title: 'Course annulée',
+        body: `L’expéditeur a annulé la course${fee ? ` · frais de déplacement ${fee.toLocaleString('fr-FR')} F` : ''}`,
+        deliveryId: id,
+      });
+    } else if (d.assignedDriverId) {
+      this.push.send([d.assignedDriverId], 'CANCELLED', { title: 'Course annulée', body: 'L’expéditeur a annulé la course', deliveryId: id });
     }
     if (d.companyId && fee) this.tracking.emitToCompany(d.companyId, 'delivery:cancel-fee', { deliveryId: id, fee });
     return this.notify(await this.findOne(id, true));
@@ -387,6 +418,11 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     if (beforePickup) await this.reprice(d, remaining);
     if (d.driverId) {
       this.tracking.emitToUser(d.driverId, 'stop:cancelled', { deliveryId: d.id, stopId, recipientName: stop.recipientName });
+      this.push.send([d.driverId], 'UPDATED', {
+        title: 'Arrêt annulé',
+        body: `${stop.recipientName} · ${stop.address}${beforePickup ? '' : ' : rapportez le colis à l’expéditeur'}`,
+        deliveryId: d.id,
+      });
     }
     this.tracking.emitToUser(d.clientId, 'stop:cancelled', { deliveryId: d.id, stopId, recipientName: stop.recipientName });
     return beforePickup ? this.notify(await this.findOne(d.id, true)) : this.afterStop(d.id);
@@ -523,7 +559,13 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       if (!res.affected) throw new ConflictException('Course déjà prise ou indisponible');
     });
     await this.closeOffers(id);
-    return this.notify(await this.findOne(id));
+    const accepted = await this.findOne(id);
+    this.push.send([accepted.clientId], 'CLIENT_UPDATE', {
+      title: 'Livreur trouvé',
+      body: `${accepted.driver?.name ?? 'Un livreur'}${accepted.company?.independent ? ' (livreur indépendant)' : ''} arrive au point de départ`,
+      deliveryId: id,
+    });
+    return this.notify(accepted);
   }
 
   async pickup(driverId: string, id: string) {
@@ -532,7 +574,9 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       { status: DeliveryStatus.PICKED_UP, pickedUpAt: new Date() },
     );
     if (!res.affected) throw new BadRequestException('Action impossible pour cette course');
-    return this.notify(await this.findOne(id));
+    const picked = await this.findOne(id);
+    this.push.send([picked.clientId], 'CLIENT_UPDATE', { title: 'Colis récupérés', body: `${picked.driver?.name ?? 'Le livreur'} est en route vers les destinataires`, deliveryId: id });
+    return this.notify(picked);
   }
 
   /** Livraison d'un arrêt : le destinataire donne son code au livreur */
@@ -541,6 +585,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     const stop = this.driverStop(d, driverId, stopId);
     if (stop.confirmationCode !== code) throw new BadRequestException('Code incorrect');
     await this.stops.update(stopId, { status: StopStatus.DELIVERED, deliveredAt: new Date() });
+    this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Colis livré', body: `Livré à ${stop.recipientName}`, deliveryId: id });
     return this.afterStop(id);
   }
 
@@ -579,6 +624,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       failureLng: driver.lastLng,
     });
     this.tracking.emitToUser(d.clientId, 'stop:failed', { deliveryId: id, stopId, recipientName: stop.recipientName });
+    this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Livraison non effectuée', body: `${stop.recipientName} : ${dto.reason === 'ABSENT' ? 'destinataire absent' : 'voir le détail'}`, deliveryId: id });
     return this.afterStop(id);
   }
 
@@ -611,6 +657,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
   private async finish(id: string) {
     await this.repo.update(id, { status: DeliveryStatus.DELIVERED, deliveredAt: new Date() });
     await this.billing.charge(id);
+    const d = await this.repo.findOneBy({ id });
+    if (d) this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Course terminée', body: 'Tous les arrêts sont traités. Merci d’avoir choisi LETO !', deliveryId: id });
   }
 
   /** Le livreur rapporte les colis non livrés : l'expéditeur lui donne son code de retour */
@@ -675,6 +723,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     await this.closeOffers(id);
     this.tracking.emitToUser(d.clientId, 'delivery:cancelled', { deliveryId: id, reason });
     if (d.driverId) this.tracking.emitToUser(d.driverId, 'delivery:cancelled', { deliveryId: id, reason });
+    this.push.send([d.clientId, d.driverId], 'CANCELLED', { title: 'Course annulée par LETO', body: reason, deliveryId: id });
     return this.notify(await this.findOne(id));
   }
 

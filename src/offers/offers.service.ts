@@ -6,6 +6,7 @@ import { AuthUser } from '../common/decorators';
 import { Delivery, DeliveryStatus } from '../deliveries/delivery.entity';
 import { haversineKm } from '../geo/communes';
 import { IndependentsService } from '../independents/independents.service';
+import { NotifyService } from '../notifications/notify.service';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { Offer, OfferStatus } from './offer.entity';
 
@@ -24,6 +25,7 @@ export class OffersService {
     private tracking: TrackingGateway,
     private billing: BillingService,
     private independents: IndependentsService,
+    private push: NotifyService,
   ) {}
 
   // ---------- Livreur ----------
@@ -59,6 +61,7 @@ export class OffersService {
       }),
     );
     this.tracking.emitToDelivery(deliveryId, 'delivery:offers', { deliveryId });
+    this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Nouvelle proposition', body: `Un livreur propose ${price.toLocaleString('fr-FR')} F pour votre course`, deliveryId });
     return offer;
   }
 
@@ -136,6 +139,7 @@ export class OffersService {
     });
 
     this.tracking.emitToUser(offer.driverId, 'offer:accepted', { deliveryId: offer.deliveryId });
+    this.push.send([offer.driverId], 'ASSIGNED', { title: 'Proposition acceptée', body: `Le client a accepté ${offer.price.toLocaleString('fr-FR')} F : allez au point de départ`, deliveryId: offer.deliveryId });
     for (const o of others) this.tracking.emitToUser(o.driverId, 'offer:rejected', { deliveryId: offer.deliveryId });
     this.tracking.deliveryChanged({ id: offer.deliveryId, status: DeliveryStatus.ACCEPTED });
     return { ok: true, deliveryId: offer.deliveryId, price: offer.price };
