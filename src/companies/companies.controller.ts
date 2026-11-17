@@ -2,7 +2,7 @@ import { Body, Controller, Delete, Get, Param, ParseBoolPipe, Patch, Post, Put, 
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { PersonDto } from '../common/dto';
 import { Role } from '../users/user.entity';
-import { CreateCompanyDto, UpdateCompanyDto } from './companies.dto';
+import { CreateCompanyDto, UpdateCompanyDto, VehiclesDto } from './companies.dto';
 import { CompaniesService } from './companies.service';
 
 @Controller('companies')
@@ -45,6 +45,12 @@ export class CompaniesController {
   @Roles(Role.COMPANY)
   setPricing(@CurrentUser() user: AuthUser, @Body() body: Record<string, unknown>) {
     return this.service.setPricing(user.companyId, body);
+  }
+
+  @Put('me/vehicles')
+  @Roles(Role.COMPANY)
+  setVehicles(@CurrentUser() user: AuthUser, @Body() body: VehiclesDto) {
+    return this.service.setVehicles(user.companyId, body.vehicles);
   }
 
   @Delete('me/pricing')

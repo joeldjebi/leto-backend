@@ -36,6 +36,10 @@ export class Company {
   @Column({ type: 'jsonb', nullable: true })
   pricing: Record<string, unknown> | null;
 
+  /** Engins dont l'entreprise dispose (MOTO, CAR, CARGO) ; null = tous */
+  @Column({ type: 'jsonb', nullable: true })
+  vehicles: string[] | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }

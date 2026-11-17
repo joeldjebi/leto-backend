@@ -85,6 +85,10 @@ export class Delivery {
   @Column('int')
   price: number;
 
+  /** Détail du prix : zone Grand Abidjan, majorations appliquées, réduction tournée */
+  @Column({ type: 'jsonb', nullable: true })
+  pricingDetails: { inAbidjan: boolean; surchargePct: number; surcharges: { key: string; label: string; pct: number }[]; stopDiscountPct: number } | null;
+
   /** Commission LETO (fixée à l'acceptation, prélevée sur le crédit de l'entreprise à la fin de la tournée) */
   @Column({ type: 'int', nullable: true })
   commissionAmount: number | null;

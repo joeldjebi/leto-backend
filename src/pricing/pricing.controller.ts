@@ -14,11 +14,12 @@ import {
 } from 'class-validator';
 import { MoreThan, Repository } from 'typeorm';
 import { Company } from '../companies/company.entity';
-import { haversineKm } from '../geo/communes';
+import { allInGrandAbidjan, haversineKm } from '../geo/communes';
 import { GeoService } from '../geo/geo.service';
 import { Role, User } from '../users/user.entity';
 import { SettingsService } from '../settings/settings.service';
-import { computePrice, DeliverySpeed, MAX_STOPS, VehicleType } from './pricing';
+import { computePrice, DeliverySpeed, MAX_STOPS, stopDiscountPct, VehicleType } from './pricing';
+import { SurchargeService } from './surcharge.service';
 
 class QuoteStopDto {
   @IsLatitude() lat: number;
@@ -50,6 +51,7 @@ export class PricingController {
   constructor(
     private geo: GeoService,
     private settings: SettingsService,
+    private surcharge: SurchargeService,
     @InjectRepository(User) private users: Repository<User>,
     @InjectRepository(Company) private companies: Repository<Company>,
   ) {}
@@ -74,6 +76,8 @@ export class PricingController {
     const ordered = order.map((i) => dto.stops[i]);
     const route = await this.geo.routeVia([pickup, ...ordered]);
     const codStops = grid.codEnabled ? ordered.filter((s) => s.cod).length : 0;
+    const inAbidjan = allInGrandAbidjan([pickup, ...ordered]);
+    const sur = this.surcharge.context([pickup, ...ordered]);
     const offers = (Object.keys(grid.vehicles) as VehicleType[])
       .filter((vehicle) => grid.vehicles[vehicle].enabled)
       .map((vehicle) => ({
@@ -83,7 +87,7 @@ export class PricingController {
       prices: Object.fromEntries(
         (Object.keys(grid.speeds) as DeliverySpeed[]).map((s) => [
           s,
-          computePrice(grid, route.distanceKm, vehicle, s, ordered.length, codStops),
+          computePrice(grid, route.distanceKm, vehicle, s, ordered.length, codStops, { inAbidjan, surchargePct: sur.pct }),
         ]),
       ),
     }));
@@ -98,10 +102,43 @@ export class PricingController {
       codEnabled: grid.codEnabled,
       codFee: grid.codFee,
       extraStopFee: grid.extraStopFee,
+      inAbidjan,
+      /** Majorations en cours (heure de pointe, nuit, pluie, zone inondable) */
+      surcharges: sur.items,
+      surchargePct: sur.pct,
+      /** Réduction tournée appliquée (%) */
+      stopDiscountPct: stopDiscountPct(grid, ordered.length),
     };
   }
 
   /** « Prise en charge ~X min » : temps d'arrivée du livreur en ligne le plus proche */
+  /**
+   * Livreurs en ligne autour d'un point (carte du client) : positions seulement, sans identité.
+   * [companyId] : uniquement les livreurs de l'entreprise choisie.
+   */
+  @Get('drivers')
+  async nearbyDrivers(@Query('lat') latStr: string, @Query('lng') lngStr: string, @Query('companyId') companyId?: string) {
+    const lat = Number(latStr);
+    const lng = Number(lngStr);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
+    const drivers = await this.users.find({
+      where: { role: Role.DRIVER, active: true, lastLocationAt: MoreThan(new Date(Date.now() - ONLINE_WINDOW_MS)), ...(companyId ? { companyId } : {}) },
+      relations: { company: true },
+    });
+    return drivers
+      .filter((d) => d.company?.active !== false && d.lastLat != null && d.lastLng != null)
+      .map((d) => ({ d, km: haversineKm(lat, lng, d.lastLat!, d.lastLng!) }))
+      .filter((x) => x.km <= 8)
+      .sort((a, b) => a.km - b.km)
+      .slice(0, 40)
+      .map(({ d, km }, i) => ({
+        id: `d${i}`, // identifiant anonyme (pas d'identité du livreur)
+        lat: Math.round(d.lastLat! * 10000) / 10000,
+        lng: Math.round(d.lastLng! * 10000) / 10000,
+        km: Math.round(km * 10) / 10,
+      }));
+  }
+
   @Get('eta')
   async eta(@Query('lat') latStr: string, @Query('lng') lngStr: string) {
     const lat = Number(latStr);

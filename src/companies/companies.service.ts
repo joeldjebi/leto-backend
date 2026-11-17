@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { DataSource, In, Repository } from 'typeorm';
@@ -51,7 +51,27 @@ export class CompaniesService {
   /** Grille de l'entreprise : sa grille propre (ou null) et la grille appliquée (fusionnée sur LETO) */
   async pricing(companyId: string) {
     const c = await this.companies.findOneBy({ id: companyId });
-    return { custom: c?.pricing ?? null, effective: this.settings.gridFor(c), platform: this.settings.pricing };
+    const effective = this.settings.gridFor(c);
+    return {
+      custom: c?.pricing ?? null,
+      effective,
+      platform: this.settings.pricing,
+      /** Engins dont l'entreprise dispose */
+      vehicles: c?.vehicles ?? (Object.values(VehicleType) as string[]).filter(
+        (v) => (c?.pricing as { vehicles?: Record<string, { enabled?: boolean }> } | null)?.vehicles?.[v]?.enabled !== false,
+      ),
+    };
+  }
+
+  /** Le gérant indique les engins dont il dispose (un engin désactivé par LETO reste non proposé) */
+  async setVehicles(companyId: string, vehicles: string[]) {
+    const list = [...new Set(vehicles)].filter((v) => (Object.values(VehicleType) as string[]).includes(v));
+    if (!list.length) throw new BadRequestException('Choisissez au moins un engin');
+    if (!list.some((v) => this.settings.pricing.vehicles[v as VehicleType].enabled)) {
+      throw new BadRequestException('Aucun de ces engins n’est proposé par LETO pour le moment');
+    }
+    await this.companies.update(companyId, { vehicles: list });
+    return this.pricing(companyId);
   }
 
   async setPricing(companyId: string, input: Record<string, unknown> | null) {
@@ -88,7 +108,8 @@ export class CompaniesService {
             base: grid.vehicles[v].base,
             perKm: grid.vehicles[v].perKm,
             min: grid.vehicles[v].min,
-            sample5km: computePrice(grid, 5, v, DeliverySpeed.STANDARD, 1, 0),
+            sample5km: computePrice(grid, 5, v, DeliverySpeed.STANDARD, 1, 0, { inAbidjan: true }),
+            maxAbidjan: grid.vehicles[v].maxAbidjan,
           })),
         speeds: Object.fromEntries(Object.entries(grid.speeds).map(([k, s]) => [k, { label: s.label, factor: s.factor }])),
         extraStopFee: grid.extraStopFee,

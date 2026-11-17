@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { defaultGrid, DeliverySpeed, MAX_STOPS, PricingGrid, VehicleType } from '../pricing/pricing';
+import { defaultGrid, DeliverySpeed, MAX_STOPS, PRICING_REV, PricingGrid, VehicleType } from '../pricing/pricing';
 import { Setting } from './setting.entity';
 
 const KEY = 'pricing';
@@ -17,8 +17,23 @@ export class SettingsService implements OnModuleInit {
   async onModuleInit() {
     const row = await this.repo.findOneBy({ key: KEY });
     if (row) {
-      this.grid = this.merge(row.value as Partial<PricingGrid>);
+      const stored = row.value as Partial<PricingGrid>;
+      this.grid = this.merge(stored);
       this.meta = { updatedAt: row.updatedAt, updatedBy: row.updatedBy };
+      // Règles v2 (une seule fois) : prix au km réduits et plafonds moto dans le Grand Abidjan
+      // Règles v3 : réduction tournée et majorations (valeurs par défaut via merge)
+      if ((stored.rev ?? 1) < PRICING_REV) {
+        if ((stored.rev ?? 1) < 2) {
+          const d = defaultGrid();
+          for (const v of Object.values(VehicleType)) {
+            this.grid.vehicles[v].perKm = Math.min(this.grid.vehicles[v].perKm, d.vehicles[v].perKm);
+            this.grid.vehicles[v].maxAbidjan = d.vehicles[v].maxAbidjan;
+          }
+        }
+        this.grid.rev = PRICING_REV;
+        const saved = await this.repo.save({ key: KEY, value: this.grid, updatedBy: `Mise à jour des règles (v${PRICING_REV})` });
+        this.meta = { updatedAt: saved.updatedAt, updatedBy: saved.updatedBy };
+      }
     }
   }
 
@@ -46,10 +61,20 @@ export class SettingsService implements OnModuleInit {
     return this.info;
   }
 
-  /** Grille d'une entreprise : ses prix (engins, délais, supplément arrêt, frais d'encaissement) sur les règles LETO */
-  gridFor(company?: { pricing?: Record<string, unknown> | null } | null): PricingGrid {
-    if (!company?.pricing) return this.grid;
-    return this.merge(this.priceOnly(company.pricing as Partial<PricingGrid>), this.grid);
+  /**
+   * Grille d'une entreprise : ses prix (engins, délais, plafonds, supplément arrêt, frais d'encaissement) sur les règles LETO.
+   * Un engin n'est proposé que s'il est activé par LETO ET que l'entreprise en dispose.
+   */
+  gridFor(company?: { pricing?: Record<string, unknown> | null; vehicles?: string[] | null } | null): PricingGrid {
+    if (!company) return this.grid;
+    const g = company.pricing ? this.merge(this.priceOnly(company.pricing as Partial<PricingGrid>), this.grid) : structuredClone(this.grid);
+    for (const v of Object.values(VehicleType)) {
+      // Anciennes grilles : « non proposé » enregistré dans les prix
+      const legacyOff = (company.pricing as { vehicles?: Record<string, { enabled?: boolean }> } | null)?.vehicles?.[v]?.enabled === false;
+      const has = company.vehicles ? company.vehicles.includes(v) : !legacyOff;
+      g.vehicles[v].enabled = this.grid.vehicles[v].enabled && has;
+    }
+    return g;
   }
 
   /** Valide et nettoie une grille d'entreprise (seuls les prix sont gardés) */
@@ -59,7 +84,7 @@ export class SettingsService implements OnModuleInit {
     this.validate(merged);
     return {
       vehicles: Object.fromEntries(
-        Object.entries(merged.vehicles).map(([k, v]) => [k, { base: v.base, perKm: v.perKm, min: v.min, enabled: v.enabled }]),
+        Object.entries(merged.vehicles).map(([k, v]) => [k, { base: v.base, perKm: v.perKm, min: v.min, maxAbidjan: v.maxAbidjan }]),
       ),
       speeds: Object.fromEntries(Object.entries(merged.speeds).map(([k, v]) => [k, { factor: v.factor }])),
       extraStopFee: merged.extraStopFee,
@@ -71,7 +96,7 @@ export class SettingsService implements OnModuleInit {
     const out: Partial<PricingGrid> = {};
     if (input.vehicles) {
       out.vehicles = Object.fromEntries(
-        Object.entries(input.vehicles).map(([k, v]) => [k, { base: v?.base, perKm: v?.perKm, min: v?.min, enabled: v?.enabled }]),
+        Object.entries(input.vehicles).map(([k, v]) => [k, { base: v?.base, perKm: v?.perKm, min: v?.min, maxAbidjan: v?.maxAbidjan }]),
       ) as PricingGrid['vehicles'];
     }
     if (input.speeds) {
@@ -91,6 +116,12 @@ export class SettingsService implements OnModuleInit {
       for (const k of ['label', 'description', 'base', 'perKm', 'min', 'enabled'] as const) {
         if (src[k] !== undefined) (out.vehicles[v] as any)[k] = src[k];
       }
+      if (src.maxAbidjan && typeof src.maxAbidjan === 'object') {
+        for (const sp of Object.values(DeliverySpeed)) {
+          const cap = (src.maxAbidjan as Record<string, unknown>)[sp];
+          if (cap !== undefined) out.vehicles[v].maxAbidjan[sp] = cap === null ? 0 : (cap as number);
+        }
+      }
     }
     for (const sp of Object.values(DeliverySpeed)) {
       const src = input.speeds?.[sp];
@@ -103,6 +134,19 @@ export class SettingsService implements OnModuleInit {
     if (typeof input.cancelFeeEnabled === 'boolean') out.cancelFeeEnabled = input.cancelFeeEnabled;
     if (typeof input.returnCodeEnabled === 'boolean') out.returnCodeEnabled = input.returnCodeEnabled;
     if (input.cancelFeeType === 'PERCENT' || input.cancelFeeType === 'FIXED') out.cancelFeeType = input.cancelFeeType;
+    if (typeof input.rev === 'number') out.rev = input.rev;
+    for (const k of ['multiStopDiscountPct', 'multiStopDiscountMaxPct'] as const) {
+      if (input[k] !== undefined) out[k] = input[k] as number;
+    }
+    const sc = input.surcharges as Partial<PricingGrid['surcharges']> | undefined;
+    if (sc && typeof sc === 'object') {
+      for (const k of ['rushEnabled', 'nightEnabled', 'aboveCap'] as const) if (typeof sc[k] === 'boolean') out.surcharges[k] = sc[k];
+      for (const k of ['rushPct', 'nightPct', 'rainPct', 'rainThresholdMm', 'floodPct'] as const) if (sc[k] !== undefined) out.surcharges[k] = sc[k] as number;
+      if (sc.rainMode === 'AUTO' || sc.rainMode === 'ON' || sc.rainMode === 'OFF') out.surcharges.rainMode = sc.rainMode;
+      if (typeof sc.nightRange === 'string') out.surcharges.nightRange = sc.nightRange.trim();
+      if (Array.isArray(sc.rushRanges)) out.surcharges.rushRanges = sc.rushRanges.map((x) => String(x).trim()).filter(Boolean);
+      if (Array.isArray(sc.floodCommunes)) out.surcharges.floodCommunes = sc.floodCommunes.map((x) => String(x).trim()).filter(Boolean);
+    }
     for (const k of ['codFee', 'extraStopFee', 'maxStops', 'absenceWaitMin', 'cancelFeeValue', 'cancelFreeMinutes', 'cancelRequestAutoMin'] as const) {
       if (input[k] !== undefined) out[k] = input[k] as number;
     }
@@ -125,6 +169,9 @@ export class SettingsService implements OnModuleInit {
       num(v.perKm, `${k} · prix par km`, 0, 100_000);
       num(v.min, `${k} · minimum`, 0, 1_000_000);
       if (typeof v.enabled !== 'boolean') throw new BadRequestException(`${k} · activé : vrai ou faux`);
+      for (const [sp, cap] of Object.entries(v.maxAbidjan)) {
+        num(cap, `${k} · prix maximum ${g.speeds[sp as DeliverySpeed]?.label ?? sp} (0 = aucun)`, 0, 1_000_000);
+      }
     }
     if (!Object.values(g.vehicles).some((v) => v.enabled)) throw new BadRequestException('Au moins une offre doit rester active');
     for (const [k, s] of Object.entries(g.speeds)) {
@@ -139,5 +186,20 @@ export class SettingsService implements OnModuleInit {
     else num(g.cancelFeeValue, 'Frais de déplacement (F)', 0, 100_000);
     num(g.cancelFreeMinutes, 'Annulation gratuite (min)', 0, 60);
     num(g.cancelRequestAutoMin, 'Délai de confirmation d’une annulation (min)', 1, 120);
+    num(g.multiStopDiscountPct, 'Réduction par arrêt supplémentaire (%)', 0, 50);
+    num(g.multiStopDiscountMaxPct, 'Réduction tournée maximum (%)', 0, 80);
+    const sc = g.surcharges;
+    const range = (v: string, name: string) => {
+      if (!/^([01]?\d|2[0-3]):[0-5]\d-([01]?\d|2[0-3]):[0-5]\d$/.test(v)) throw new BadRequestException(`${name} : plage « HH:MM-HH:MM » attendue`);
+    };
+    num(sc.rushPct, 'Majoration heure de pointe (%)', 0, 100);
+    num(sc.nightPct, 'Majoration de nuit (%)', 0, 100);
+    num(sc.rainPct, 'Majoration pluie (%)', 0, 100);
+    num(sc.floodPct, 'Majoration zone inondable (%)', 0, 100);
+    num(sc.rainThresholdMm, 'Seuil de pluie (mm)', 0.1, 50);
+    if (sc.rushRanges.length > 4) throw new BadRequestException('4 plages d’heures de pointe au plus');
+    sc.rushRanges.forEach((r) => range(r, 'Heure de pointe'));
+    range(sc.nightRange, 'Nuit');
+    if (sc.floodCommunes.length > 20) throw new BadRequestException('20 communes inondables au plus');
   }
 }

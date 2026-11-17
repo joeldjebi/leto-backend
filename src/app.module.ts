@@ -10,6 +10,7 @@ import { StatsService } from './admin/stats.service';
 import { BillingController } from './billing/billing.controller';
 import { CreditTransaction, Payment } from './billing/billing.entities';
 import { BillingService } from './billing/billing.service';
+import { SurchargeService } from './pricing/surcharge.service';
 import { LogbookEntry } from './logbook/logbook-entry.entity';
 import { LogbookController } from './logbook/logbook.controller';
 import { Remittance } from './remittances/remittance.entity';
@@ -89,6 +90,7 @@ import { UsersController } from './users/users.controller';
     OffersService,
     StorageService,
     SettingsService,
+    SurchargeService,
     RemittancesService,
     StatsService,
     TrackingGateway,

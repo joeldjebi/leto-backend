@@ -7,10 +7,11 @@ import { SavedAddress } from '../addresses/saved-address.entity';
 import { BillingService } from '../billing/billing.service';
 import { AuthUser } from '../common/decorators';
 import { Company } from '../companies/company.entity';
-import { haversineKm, nearestCommune } from '../geo/communes';
+import { allInGrandAbidjan, haversineKm, nearestCommune } from '../geo/communes';
 import { GeoService } from '../geo/geo.service';
 import { Offer, OfferStatus } from '../offers/offer.entity';
-import { computePrice, DeliverySpeed, VehicleType } from '../pricing/pricing';
+import { computePrice, DeliverySpeed, stopDiscountPct, VehicleType } from '../pricing/pricing';
+import { SurchargeService } from '../pricing/surcharge.service';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { Role, User } from '../users/user.entity';
 import { SettingsService } from '../settings/settings.service';
@@ -36,6 +37,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     private geo: GeoService,
     private settings: SettingsService,
     private billing: BillingService,
+    private surcharge: SurchargeService,
   ) {}
 
   /** Notifie en temps réel puis renvoie la course */
@@ -89,6 +91,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     const ordered = order.map((i) => dto.stops[i]);
     const route = await this.geo.routeVia([pickup, ...ordered]);
     const codStops = ordered.filter((s) => (s.codAmount ?? 0) > 0).length;
+    const inAbidjan = allInGrandAbidjan([pickup, ...ordered]);
+    const sur = this.surcharge.context([pickup, ...ordered]);
 
     // companyId du formulaire = entreprise choisie (cible), à ne pas confondre avec l'entreprise du livreur
     const { companyId: _target, keepOrder: _keep, ...fields } = dto;
@@ -102,7 +106,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
         pickupCommune: nearestCommune(dto.pickupLat, dto.pickupLng),
         distanceKm: Math.round(route.distanceKm * 10) / 10,
         durationMin: route.durationMin,
-        price: opts.priceOverride ?? computePrice(grid, route.distanceKm, vehicleType, speed, ordered.length, codStops),
+        price: opts.priceOverride ?? computePrice(grid, route.distanceKm, vehicleType, speed, ordered.length, codStops, { inAbidjan, surchargePct: sur.pct }),
+        pricingDetails: { inAbidjan, surchargePct: sur.pct, surcharges: sur.items, stopDiscountPct: stopDiscountPct(grid, ordered.length) },
         returnCode: randomInt(0, 10000).toString().padStart(4, '0'),
         trackingToken: randomBytes(16).toString('hex'),
         targetCompanyId: company?.id ?? null,
@@ -378,12 +383,17 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
 
   /** Nouveau prix et nouvel itinéraire avec les arrêts restants (avant la récupération des colis) */
   private async reprice(d: Delivery, remaining: DeliveryStop[]) {
-    const grid = this.settings.pricing;
-    const route = await this.geo.routeVia([{ lat: d.pickupLat, lng: d.pickupLng }, ...remaining.map((s) => ({ lat: s.lat, lng: s.lng }))]);
+    const company = d.targetCompanyId ? await this.companies.findOneBy({ id: d.targetCompanyId }) : null;
+    const grid = this.settings.gridFor(company);
+    const pickup = { lat: d.pickupLat, lng: d.pickupLng };
+    const route = await this.geo.routeVia([pickup, ...remaining.map((s) => ({ lat: s.lat, lng: s.lng }))]);
     const codStops = grid.codEnabled ? remaining.filter((s) => s.codAmount > 0).length : 0;
-    const computed = computePrice(grid, route.distanceKm, d.vehicleType, d.speed, remaining.length, codStops);
+    // Mêmes majorations qu'à la commande
+    const zone = (pts: { lat: number; lng: number }[]) => ({ inAbidjan: allInGrandAbidjan([pickup, ...pts]), surchargePct: d.pricingDetails?.surchargePct ?? 0 });
+    const computed = computePrice(grid, route.distanceKm, d.vehicleType, d.speed, remaining.length, codStops, zone(remaining));
     // Prix négocié (proposition acceptée) : on garde la même proportion
-    const listPrice = computePrice(grid, d.distanceKm ?? route.distanceKm, d.vehicleType, d.speed, d.stops.filter((s) => s.status !== StopStatus.CANCELLED).length, codStops);
+    const listed = d.stops.filter((s) => s.status !== StopStatus.CANCELLED);
+    const listPrice = computePrice(grid, d.distanceKm ?? route.distanceKm, d.vehicleType, d.speed, listed.length, codStops, zone(listed));
     const price = Math.min(d.price, d.price > listPrice ? Math.ceil((computed * d.price) / listPrice / 50) * 50 : computed);
     await this.repo.update(d.id, { price, distanceKm: Math.round(route.distanceKm * 10) / 10, durationMin: route.durationMin });
     await this.billing.recompute(d.id);

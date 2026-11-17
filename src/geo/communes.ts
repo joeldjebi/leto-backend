@@ -34,3 +34,16 @@ export function nearestCommune(lat: number, lng: number): string {
   }
   return best;
 }
+
+/** Rayon autour du centre d'une commune considéré comme « Grand Abidjan » */
+export const GRAND_ABIDJAN_RADIUS_KM = 9;
+
+/** Le point est-il dans le Grand Abidjan (13 communes du district) ? */
+export function inGrandAbidjan(lat: number, lng: number): boolean {
+  return Object.values(CENTERS).some(([cLat, cLng]) => haversineKm(lat, lng, cLat, cLng) <= GRAND_ABIDJAN_RADIUS_KM);
+}
+
+/** Tous les points (départ et arrêts) sont dans le Grand Abidjan */
+export function allInGrandAbidjan(points: { lat: number; lng: number }[]): boolean {
+  return points.length > 0 && points.every((p) => inGrandAbidjan(p.lat, p.lng));
+}

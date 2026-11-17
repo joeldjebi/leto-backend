@@ -5,6 +5,7 @@ import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { PricingGrid } from '../pricing/pricing';
 import { MapSettings, MapStyleService } from '../geo/map-style.service';
 import { SettingsService } from '../settings/settings.service';
+import { SurchargeService } from '../pricing/surcharge.service';
 import { Role, User } from '../users/user.entity';
 import { StatsService } from './stats.service';
 
@@ -15,6 +16,7 @@ export class AdminController {
     private stats: StatsService,
     private settings: SettingsService,
     private mapStyle: MapStyleService,
+    private surcharge: SurchargeService,
     @InjectRepository(User) private users: Repository<User>,
   ) {}
 
@@ -36,6 +38,20 @@ export class AdminController {
   async updateSettings(@CurrentUser() user: AuthUser, @Body() body: Partial<PricingGrid>) {
     const me = await this.users.findOneBy({ id: user.sub });
     return this.settings.updatePricing(body, me?.name ?? 'Super Admin');
+  }
+
+  /** Météo en direct et majorations qui s'appliqueraient maintenant (au centre d'Abidjan) */
+  @Get('surcharges')
+  @Roles(Role.SUPER_ADMIN)
+  surchargesNow() {
+    return { weather: this.surcharge.weatherStatus, raining: this.surcharge.raining(), now: this.surcharge.context([{ lat: 5.34, lng: -4.03 }]) };
+  }
+
+  @Post('surcharges/refresh')
+  @Roles(Role.SUPER_ADMIN)
+  async refreshWeather() {
+    await this.surcharge.refreshWeather();
+    return this.surchargesNow();
   }
 
   @Get('map')
