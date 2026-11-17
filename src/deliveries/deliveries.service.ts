@@ -275,10 +275,10 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
         ? Math.max(1, Math.ceil(((haversineKm(d.driver.lastLat, d.driver.lastLng, target.lat, target.lng) * 1.35) / 20) * 60))
         : null;
     // Itinéraire réel : la tournée (départ → arrêts restants) et l'approche du livreur vers sa prochaine étape
-    const remaining = d.stops.filter((s) => s.status === StopStatus.PENDING);
+    // Toujours la tournée complète (départ puis arrêts non annulés), quel que soit l'avancement
     const tourPoints = [
-      ...(d.status === DeliveryStatus.PICKED_UP ? [] : [{ lat: d.pickupLat, lng: d.pickupLng }]),
-      ...(d.status === DeliveryStatus.DELIVERED || d.status === DeliveryStatus.CANCELLED ? d.stops : remaining).map((s) => ({ lat: s.lat, lng: s.lng })),
+      { lat: d.pickupLat, lng: d.pickupLng },
+      ...d.stops.filter((s) => s.status !== StopStatus.CANCELLED).map((s) => ({ lat: s.lat, lng: s.lng })),
     ];
     const tour = tourPoints.length >= 2 ? await this.geo.routeVia(tourPoints).catch(() => null) : null;
     const driverPos = active && live && d.driver.lastLat != null ? { lat: d.driver.lastLat, lng: d.driver.lastLng } : null;
