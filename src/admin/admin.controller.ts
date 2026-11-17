@@ -39,7 +39,10 @@ export class AdminController {
   @Roles(Role.SUPER_ADMIN)
   async updateSettings(@CurrentUser() user: AuthUser, @Body() body: Partial<PricingGrid>) {
     const me = await this.users.findOneBy({ id: user.sub });
-    return this.settings.updatePricing(body, me?.name ?? 'Super Admin');
+    const res = await this.settings.updatePricing(body, me?.name ?? 'Super Admin');
+    // Les apps rechargent les réglages (ex. confirmation par code) sans attendre
+    this.tracking.server?.emit('settings:changed', {});
+    return res;
   }
 
   /** Météo en direct et majorations qui s'appliqueraient maintenant (au centre d'Abidjan) */
