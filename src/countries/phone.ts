@@ -110,6 +110,6 @@ export function IsPhone(opts: ValidationOptions & { optional?: boolean; anyCount
 export function money(amount: number | null | undefined, currencyCode?: string | null) {
   const c = Countries.byCode(currencyCode) ?? Countries.operating;
   const n = Number(amount ?? 0);
-  const txt = n.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: c.currencyDecimals }).replace(/ | /g, ' ');
+  const txt = n.toLocaleString('fr-FR', { minimumFractionDigits: Number.isInteger(n) ? 0 : c.currencyDecimals, maximumFractionDigits: c.currencyDecimals }).replace(/ | /g, ' ');
   return `${txt} ${c.currencySymbol}`;
 }
