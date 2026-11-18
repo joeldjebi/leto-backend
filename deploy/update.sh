@@ -2,8 +2,8 @@
 # Mise à jour de LETO en production (API + back-office) : bash deploy/update.sh
 set -euo pipefail
 ROOT=/var/www/leto
-# Dossier web du back-office (cPanel : /home/performx/public_html/leto.performx.online)
-BACKOFFICE_DIR="${BACKOFFICE_DIR:-/home/performx/public_html/leto.performx.online}"
+# Dossier web du back-office (cPanel : /home/performx/public_html/sa.leto.performx.online)
+BACKOFFICE_DIR="${BACKOFFICE_DIR:-/home/performx/public_html/sa.leto.performx.online}"
 CPUSER="${CPUSER:-performx}"
 
 echo "== API"
