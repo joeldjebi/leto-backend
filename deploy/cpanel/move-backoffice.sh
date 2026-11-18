@@ -31,4 +31,8 @@ chown -R "$CPUSER:$CPUSER" "$NEW_DIR"
 echo "== 3. Certificat HTTPS (AutoSSL du compte)"
 /usr/local/cpanel/bin/autossl_check --user="$CPUSER" || echo "⚠ AutoSSL : relancez plus tard (WHM → Manage AutoSSL)"
 
-echo "Back-office disponible sur https://$SUB.$ROOTDOMAIN"
+if [ "$ip" = "$SERVER_IP" ] && curl -fsS -o /dev/null --max-time 15 "https://$SUB.$ROOTDOMAIN/"; then
+  echo "✓ Back-office disponible sur https://$SUB.$ROOTDOMAIN"
+else
+  echo "⚠ Back-office copié, mais https://$SUB.$ROOTDOMAIN n'est pas encore joignable (DNS ou certificat) : relancez ce script une fois le DNS en place"
+fi
