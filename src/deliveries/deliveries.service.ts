@@ -870,9 +870,20 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     return this.notify(await this.findOne(id));
   }
 
-  /** Refuse les propositions de prix encore en attente sur une course */
-  private closeOffers(deliveryId: string) {
-    return this.offers.update({ deliveryId, status: OfferStatus.PENDING }, { status: OfferStatus.REJECTED });
+  /** Refuse les propositions de prix encore en attente sur une course (prise, annulée ou expirée) et prévient leurs livreurs */
+  private async closeOffers(deliveryId: string) {
+    const pending = await this.offers.find({ where: { deliveryId, status: OfferStatus.PENDING }, select: { id: true, driverId: true } });
+    if (!pending.length) return;
+    await this.offers.update({ deliveryId, status: OfferStatus.PENDING }, { status: OfferStatus.REJECTED });
+    const d = await this.repo.findOneBy({ id: deliveryId });
+    const taken = d?.status === DeliveryStatus.ACCEPTED;
+    const drivers = pending.map((o) => o.driverId).filter((id) => id !== d?.driverId);
+    for (const id of drivers) this.tracking.emitToUser(id, 'offer:rejected', { deliveryId });
+    this.push.send(drivers, 'UPDATED', {
+      title: taken ? 'Course attribuée à un autre livreur' : 'Course plus disponible',
+      body: taken ? 'Un livreur a accepté la course au prix affiché.' : 'L’expéditeur ou LETO a annulé la course : votre proposition est retirée.',
+      deliveryId,
+    });
   }
 
   private async findOne(id: string, withCodes = false) {

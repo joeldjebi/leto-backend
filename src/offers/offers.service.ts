@@ -1,7 +1,7 @@
 import { money } from '../countries/phone';
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { DataSource, MoreThan, Repository } from 'typeorm';
+import { DataSource, In, LessThan, MoreThan, Repository } from 'typeorm';
 import { BillingService } from '../billing/billing.service';
 import { AuthUser } from '../common/decorators';
 import { Delivery, DeliveryStatus } from '../deliveries/delivery.entity';
@@ -10,6 +10,7 @@ import { IndependentsService } from '../independents/independents.service';
 import { NotifyService } from '../notifications/notify.service';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { Offer, OfferStatus } from './offer.entity';
+import { User } from '../users/user.entity';
 
 /** Durée de validité d'une proposition */
 export const OFFER_TTL_MS = 2 * 60 * 1000;
@@ -18,7 +19,9 @@ export const MAX_OFFER_FACTOR = 2;
 const UNPAYABLE = 'Ce livreur ne peut plus prendre la course : choisissez une autre proposition';
 
 @Injectable()
-export class OffersService {
+export class OffersService implements OnModuleInit, OnModuleDestroy {
+  private logger = new Logger(OffersService.name);
+  private timer?: NodeJS.Timeout;
   constructor(
     private dataSource: DataSource,
     @InjectRepository(Offer) private offers: Repository<Offer>,
@@ -62,7 +65,12 @@ export class OffersService {
       }),
     );
     this.tracking.emitToDelivery(deliveryId, 'delivery:offers', { deliveryId });
-    this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Nouvelle proposition', body: `Un livreur propose ${money(price)} pour votre course`, deliveryId });
+    const driver = await this.dataSource.getRepository(User).findOneBy({ id: user.sub });
+    this.push.send([d.clientId], 'CLIENT_UPDATE', {
+      title: 'Nouvelle proposition de prix',
+      body: `${driver?.name ?? 'Un livreur'} propose ${money(price)} (prix affiché ${money(d.price)}). Répondez dans les 2 min.`,
+      deliveryId,
+    });
     return offer;
   }
 
@@ -135,6 +143,11 @@ export class OffersService {
       if (e?.message === UNPAYABLE) {
         await this.offers.update({ id: offer.id, status: OfferStatus.PENDING }, { status: OfferStatus.REJECTED });
         this.tracking.emitToUser(offer.driverId, 'offer:rejected', { deliveryId: offer.deliveryId });
+        this.push.send([offer.driverId], 'UPDATED', {
+          title: 'Proposition écartée',
+          body: 'Le client voulait l’accepter, mais le crédit ou l’abonnement de votre entreprise ne le permet pas.',
+          deliveryId: offer.deliveryId,
+        });
       }
       throw e;
     });
@@ -142,6 +155,11 @@ export class OffersService {
     this.tracking.emitToUser(offer.driverId, 'offer:accepted', { deliveryId: offer.deliveryId });
     this.push.send([offer.driverId], 'ASSIGNED', { title: 'Proposition acceptée', body: `Le client a accepté ${money(offer.price)} : allez au point de départ`, deliveryId: offer.deliveryId });
     for (const o of others) this.tracking.emitToUser(o.driverId, 'offer:rejected', { deliveryId: offer.deliveryId });
+    this.push.send(others.map((o) => o.driverId), 'UPDATED', {
+      title: 'Course attribuée à un autre livreur',
+      body: 'Le client a choisi une autre proposition.',
+      deliveryId: offer.deliveryId,
+    });
     this.tracking.deliveryChanged({ id: offer.deliveryId, status: DeliveryStatus.ACCEPTED });
     return { ok: true, deliveryId: offer.deliveryId, price: offer.price };
   }
@@ -151,7 +169,37 @@ export class OffersService {
     await this.offers.update({ id: offer.id, status: OfferStatus.PENDING }, { status: OfferStatus.REJECTED });
     this.tracking.emitToUser(offer.driverId, 'offer:rejected', { deliveryId: offer.deliveryId });
     this.tracking.emitToDelivery(offer.deliveryId, 'delivery:offers', { deliveryId: offer.deliveryId });
+    this.push.send([offer.driverId], 'UPDATED', {
+      title: 'Proposition refusée',
+      body: `Le client a refusé ${money(offer.price)}. Vous pouvez accepter au prix affiché ou proposer un autre prix.`,
+      deliveryId: offer.deliveryId,
+    });
     return { ok: true };
+  }
+
+  /** Propositions sans réponse après 2 min : expirées, le livreur est prévenu, la liste du client se met à jour */
+  private async expireOffers() {
+    const due = await this.offers.find({ where: { status: OfferStatus.PENDING, expiresAt: LessThan(new Date()) }, take: 200 });
+    if (!due.length) return;
+    const res = await this.offers.update({ id: In(due.map((o) => o.id)), status: OfferStatus.PENDING }, { status: OfferStatus.REJECTED });
+    if (!res.affected) return;
+    for (const o of due) {
+      this.tracking.emitToUser(o.driverId, 'offer:rejected', { deliveryId: o.deliveryId });
+      this.tracking.emitToDelivery(o.deliveryId, 'delivery:offers', { deliveryId: o.deliveryId });
+      this.push.send([o.driverId], 'UPDATED', {
+        title: 'Proposition expirée',
+        body: `Le client n’a pas répondu à ${money(o.price)} à temps. La course est peut-être encore disponible.`,
+        deliveryId: o.deliveryId,
+      });
+    }
+  }
+
+  onModuleInit() {
+    this.timer = setInterval(() => this.expireOffers().catch((e) => this.logger.warn(`Expiration des propositions : ${(e as Error).message}`)), 15_000);
+  }
+
+  onModuleDestroy() {
+    if (this.timer) clearInterval(this.timer);
   }
 
   private async ownedOffer(clientId: string, offerId: string) {
