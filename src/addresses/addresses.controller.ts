@@ -1,15 +1,15 @@
+import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
 import { Body, Controller, Delete, Get, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
 import { Brackets, Repository } from 'typeorm';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
-import { PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
 import { Role } from '../users/user.entity';
 import { SavedAddress } from './saved-address.entity';
 
 class SaveAddressDto {
   @IsString() @IsNotEmpty() @MaxLength(100) recipientName: string;
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) recipientPhone: string;
+  @IsPhone({ message: PHONE_MESSAGE }) recipientPhone: string;
   @IsString() @IsNotEmpty() @MaxLength(200) address: string;
   @IsOptional() @IsString() @MaxLength(500) details?: string;
   @IsLatitude() lat: number;

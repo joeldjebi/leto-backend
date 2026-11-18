@@ -1,3 +1,5 @@
+import { Countries } from '../countries/phone';
+import { money } from '../countries/phone';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -111,6 +113,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     void _target; void _keep; void _li;
     const delivery = await this.repo.save(
       this.repo.create({
+        currency: Countries.operating.currencyCode,
         ...fields,
         clientId,
         vehicleType,
@@ -142,7 +145,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       this.tracking.emitToUser(opts.assignedDriverId, 'delivery:assigned', { deliveryId: delivery.id });
       this.push.send([opts.assignedDriverId], 'ASSIGNED', {
         title: 'Course affectée par votre entreprise',
-        body: `${delivery.price.toLocaleString('fr-FR')} F · départ ${delivery.pickupCommune ?? ''}`.trim(),
+        body: `${money(delivery.price)} · départ ${delivery.pickupCommune ?? ''}`.trim(),
         deliveryId: delivery.id,
       });
     } else {
@@ -201,7 +204,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       this.tracking.emitToUser(driverId, 'delivery:assigned', { deliveryId: id });
       this.push.send([driverId], 'ASSIGNED', {
         title: 'Course affectée par votre entreprise',
-        body: `${d.price.toLocaleString('fr-FR')} F · départ ${d.pickupCommune ?? ''}`.trim(),
+        body: `${money(d.price)} · départ ${d.pickupCommune ?? ''}`.trim(),
         deliveryId: id,
       });
     }
@@ -400,7 +403,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       this.tracking.emitToUser(d.driverId, 'delivery:cancelled', { deliveryId: id, reason: reason ?? 'Annulée par l’expéditeur', fee });
       this.push.send([d.driverId], 'CANCELLED', {
         title: 'Course annulée',
-        body: `L’expéditeur a annulé la course${reason ? ` : ${reason}` : ''}${fee ? ` · frais de déplacement ${fee.toLocaleString('fr-FR')} F` : ''}`,
+        body: `L’expéditeur a annulé la course${reason ? ` : ${reason}` : ''}${fee ? ` · frais de déplacement ${money(fee)}` : ''}`,
         deliveryId: id,
       });
     } else if (d.assignedDriverId) {

@@ -1,3 +1,4 @@
+import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -20,7 +21,6 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import { PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
 import { DeliverySpeed, MAX_STOPS, VehicleType } from '../pricing/pricing';
 import { DisputeDecision, FailureReason } from './delivery-stop.entity';
 
@@ -33,7 +33,7 @@ export class StopDto {
   @IsOptional() @IsString() @MaxLength(500) details?: string;
   @IsOptional() @Matches(PHOTO_REGEX) photoUrl?: string;
   @IsString() @IsNotEmpty() @MaxLength(100) recipientName: string;
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) recipientPhone: string;
+  @IsPhone({ message: PHONE_MESSAGE }) recipientPhone: string;
   @IsOptional() @IsString() @MaxLength(300) packageDescription?: string;
 
   /** Paiement à la livraison : montant de la marchandise à encaisser (FCFA) */
@@ -55,7 +55,7 @@ export class CreateDeliveryDto {
   @IsString() @IsNotEmpty() @MaxLength(200) pickupAddress: string;
   @IsOptional() @IsString() @MaxLength(500) pickupDetails?: string;
   @IsOptional() @IsString() @MaxLength(100) pickupContactName?: string;
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) pickupPhone: string;
+  @IsPhone({ message: PHONE_MESSAGE }) pickupPhone: string;
   @IsOptional() @Matches(PHOTO_REGEX) pickupPhotoUrl?: string;
 
   /** Entreprise choisie par le client (sa grille tarifaire, ses livreurs seulement) ; absent = toutes */
@@ -103,7 +103,7 @@ export class AdminCancelDto {
 /** Course créée par une entreprise (commande reçue par téléphone, WhatsApp…) */
 export class CompanyOrderDto extends CreateDeliveryDto {
   @IsString() @IsNotEmpty({ message: 'Nom du client obligatoire' }) @MaxLength(100) clientName: string;
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) clientPhone: string;
+  @IsPhone({ message: PHONE_MESSAGE }) clientPhone: string;
   /** Livreur à qui affecter la course (sinon visible par tous les livreurs de l'entreprise) */
   @IsOptional() @IsUUID() driverId?: string;
   /** Prix fixé à la main (sinon grille de l'entreprise) */

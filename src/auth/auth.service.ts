@@ -1,3 +1,4 @@
+import { normalizePhone } from '../countries/phone';
 import {
   BadRequestException,
   ConflictException,
@@ -25,8 +26,10 @@ export class AuthService implements OnApplicationBootstrap {
    * créé au premier démarrage, puis mis à jour à chaque démarrage si le .env a changé.
    */
   async onApplicationBootstrap() {
-    const { SUPER_ADMIN_PHONE: phone, SUPER_ADMIN_PASSWORD: password } = process.env;
-    if (!phone || !password) return;
+    const { SUPER_ADMIN_PHONE: raw, SUPER_ADMIN_PASSWORD: password } = process.env;
+    if (!raw || !password) return;
+    // Format international (+225…), même si le .env contient l'ancien format local
+    const phone = normalizePhone(raw, false) ?? raw;
     if (password.length < 8) this.logger.warn('SUPER_ADMIN_PASSWORD est court : 8 caractères minimum recommandés');
 
     const sa = await this.users

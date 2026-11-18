@@ -1,3 +1,4 @@
+import { money } from '../countries/phone';
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, MoreThan, Repository } from 'typeorm';
@@ -39,10 +40,10 @@ export class OffersService {
       throw new BadRequestException(d.forIndependents ? 'Course réservée aux livreurs indépendants' : 'Course réservée aux livreurs des entreprises');
     }
     if (price <= d.price) {
-      throw new BadRequestException(`Proposez plus de ${d.price} F, ou acceptez la course au prix affiché`);
+      throw new BadRequestException(`Proposez plus de ${money(d.price)}, ou acceptez la course au prix affiché`);
     }
     if (price > d.price * MAX_OFFER_FACTOR) {
-      throw new BadRequestException(`Proposition trop élevée (maximum ${d.price * MAX_OFFER_FACTOR} F)`);
+      throw new BadRequestException(`Proposition trop élevée (maximum ${money(d.price * MAX_OFFER_FACTOR)})`);
     }
     // L'entreprise doit pouvoir payer la commission à ce prix (vérifié à nouveau quand le client accepte)
     await this.billing.check(user.companyId, price);
@@ -61,7 +62,7 @@ export class OffersService {
       }),
     );
     this.tracking.emitToDelivery(deliveryId, 'delivery:offers', { deliveryId });
-    this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Nouvelle proposition', body: `Un livreur propose ${price.toLocaleString('fr-FR')} F pour votre course`, deliveryId });
+    this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Nouvelle proposition', body: `Un livreur propose ${money(price)} pour votre course`, deliveryId });
     return offer;
   }
 
@@ -139,7 +140,7 @@ export class OffersService {
     });
 
     this.tracking.emitToUser(offer.driverId, 'offer:accepted', { deliveryId: offer.deliveryId });
-    this.push.send([offer.driverId], 'ASSIGNED', { title: 'Proposition acceptée', body: `Le client a accepté ${offer.price.toLocaleString('fr-FR')} F : allez au point de départ`, deliveryId: offer.deliveryId });
+    this.push.send([offer.driverId], 'ASSIGNED', { title: 'Proposition acceptée', body: `Le client a accepté ${money(offer.price)} : allez au point de départ`, deliveryId: offer.deliveryId });
     for (const o of others) this.tracking.emitToUser(o.driverId, 'offer:rejected', { deliveryId: offer.deliveryId });
     this.tracking.deliveryChanged({ id: offer.deliveryId, status: DeliveryStatus.ACCEPTED });
     return { ok: true, deliveryId: offer.deliveryId, price: offer.price };

@@ -1,10 +1,11 @@
+import { Countries } from '../countries/phone';
+import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
 import { BadRequestException, Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Patch, Post, Query } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsInt, IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Between, FindOptionsWhere, Repository } from 'typeorm';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
-import { PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { Role, User } from '../users/user.entity';
 import { LogbookEntry, LogbookEvent, LogbookStatus } from './logbook-entry.entity';
@@ -16,7 +17,7 @@ class CreateEntryDto {
   @IsOptional() @IsLatitude() lat?: number;
   @IsOptional() @IsLongitude() lng?: number;
   @IsOptional() @IsString() @MaxLength(100) recipientName?: string;
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) recipientPhone: string;
+  @IsPhone({ message: PHONE_MESSAGE }) recipientPhone: string;
   @Type(() => Number) @IsInt({ message: 'Prix entier attendu' }) @Min(0) @Max(1_000_000) price: number;
   @Matches(PHOTO, { message: 'Photo du colis obligatoire' }) photoUrl: string;
   @IsOptional() @IsString() @MaxLength(500) note?: string;
@@ -28,7 +29,7 @@ class RecipientDto {
   @IsOptional() @IsLatitude() lat?: number;
   @IsOptional() @IsLongitude() lng?: number;
   @IsOptional() @IsString() @MaxLength(100) recipientName?: string;
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) recipientPhone: string;
+  @IsPhone({ message: PHONE_MESSAGE }) recipientPhone: string;
   @Type(() => Number) @IsInt({ message: 'Prix entier attendu' }) @Min(0) @Max(1_000_000) price: number;
 }
 
@@ -50,7 +51,7 @@ class UpdateEntryDto {
   @IsOptional() @IsLongitude() lng?: number;
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(200) address?: string;
   @IsOptional() @IsString() @MaxLength(100) recipientName?: string;
-  @IsOptional() @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) recipientPhone?: string;
+  @IsPhone({ optional: true, message: PHONE_MESSAGE }) recipientPhone?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(1_000_000) price?: number;
   @IsOptional() @IsString() @MaxLength(500) note?: string;
 }
@@ -112,6 +113,7 @@ export class LogbookController {
     const driver = await this.users.findOneBy({ id: user.sub });
     const e = await this.repo.save(
       this.repo.create({
+        currency: Countries.operating.currencyCode,
         ...dto,
         lat: dto.lat ?? null,
         lng: dto.lng ?? null,
@@ -134,6 +136,7 @@ export class LogbookController {
     const saved = await this.repo.save(
       dto.entries.map((r) =>
         this.repo.create({
+        currency: Countries.operating.currencyCode,
           ...r,
           lat: r.lat ?? null,
           lng: r.lng ?? null,

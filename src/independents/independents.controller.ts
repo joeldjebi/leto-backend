@@ -1,3 +1,4 @@
+import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
 import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query, Res } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IsBoolean, IsEnum, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
@@ -6,7 +7,7 @@ import { existsSync } from 'fs';
 import { Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service';
 import { AuthUser, CurrentUser, Public, Roles } from '../common/decorators';
-import { PersonDto, PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
+import {PersonDto} from '../common/dto';
 import { VehicleType } from '../pricing/pricing';
 import { StorageService } from '../storage/storage.service';
 import { Role, User } from '../users/user.entity';
@@ -24,7 +25,7 @@ class DossierDto {
   @IsOptional() @IsIn(['CNI', 'PASSPORT', 'CONSULAR', 'RESIDENCE'], { message: 'Type de pièce inconnu' }) idType?: string;
   @IsOptional() @IsString() @MaxLength(40) idNumber?: string;
   @IsOptional() @IsString() @MaxLength(100) emergencyName?: string;
-  @IsOptional() @Matches(PHONE_REGEX, { message: `Contact d’urgence : ${PHONE_MESSAGE}` }) emergencyPhone?: string;
+  @IsPhone({ optional: true, message: `Contact d’urgence : ${PHONE_MESSAGE}` }) emergencyPhone?: string;
   @IsOptional() @IsEnum(VehicleType, { message: 'Engin : moto, voiture ou cargo' }) vehicleType?: string;
   @IsOptional() @IsString() @MaxLength(60) vehicleBrand?: string;
   @IsOptional() @IsString() @MaxLength(20) vehiclePlate?: string;

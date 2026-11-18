@@ -1,9 +1,10 @@
+import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
 import { IsEnum, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength, ValidateIf } from 'class-validator';
-import { PersonDto, PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
+import {PersonDto} from '../common/dto';
 import { AccountType } from '../users/user.entity';
 
 export class LoginDto {
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE })
+  @IsPhone({ anyCountry: true, message: PHONE_MESSAGE })
   phone: string;
 
   @IsString()
@@ -25,7 +26,7 @@ export class UpdateProfileDto {
   name?: string;
 
   @IsOptional()
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE })
+  @IsPhone({ message: PHONE_MESSAGE })
   phone?: string;
 
   @IsOptional()

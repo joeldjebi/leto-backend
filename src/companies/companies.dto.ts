@@ -1,13 +1,14 @@
+import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
 import { Type } from 'class-transformer';
 import { ArrayMinSize, IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
-import { PersonDto, PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
+import {PersonDto} from '../common/dto';
 
 export class CreateCompanyDto {
   @IsString()
   @IsNotEmpty()
   name: string;
 
-  @Matches(PHONE_REGEX, { message: `Téléphone de l’entreprise : ${PHONE_MESSAGE}` })
+  @IsPhone({ message: `Téléphone de l’entreprise : ${PHONE_MESSAGE}` })
   phone: string;
 
   /** Compte du gérant créé en même temps que l'entreprise */
@@ -15,7 +16,7 @@ export class CreateCompanyDto {
   @IsNotEmpty({ message: 'Nom du gérant obligatoire' })
   managerName: string;
 
-  @Matches(PHONE_REGEX, { message: `Téléphone du gérant : ${PHONE_MESSAGE}` })
+  @IsPhone({ message: `Téléphone du gérant : ${PHONE_MESSAGE}` })
   managerPhone: string;
 
   @IsString()
@@ -37,7 +38,7 @@ export class ReviewNoteDto {
 
 export class UpdateCompanyDto {
   @IsOptional() @IsString() @IsNotEmpty() @MaxLength(100) name?: string;
-  @IsOptional() @Matches(PHONE_REGEX, { message: PHONE_MESSAGE }) phone?: string;
+  @IsPhone({ optional: true, message: PHONE_MESSAGE }) phone?: string;
 }
 
 /** Nouveau livreur : identité et engin */

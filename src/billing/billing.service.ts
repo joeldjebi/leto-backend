@@ -1,3 +1,4 @@
+import { money } from '../countries/phone';
 import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, EntityManager, Repository } from 'typeorm';
@@ -32,7 +33,7 @@ export const OPERATORS = ['Wave', 'Orange Money', 'MTN MoMo', 'Moov Money'];
 const RESERVING = [DeliveryStatus.ACCEPTED, DeliveryStatus.PICKED_UP];
 
 export const ruleLabel = (type: CommissionType, value: number) =>
-  type === 'PERCENT' ? `${value} %` : `${Math.round(value).toLocaleString('fr-FR')} F`;
+  type === 'PERCENT' ? `${value} %` : `${money(Math.round(value))}`;
 
 /**
  * Abonnement annuel + crédit prépayé :
@@ -150,7 +151,7 @@ export class BillingService implements OnModuleInit {
     if (!c.active) throw new BadRequestException('Votre compte est suspendu par LETO');
     const { amount, label } = this.commission(c, price);
     const available = c.credit - (await this.reserved(m, c.id));
-    if (available < amount) throw new BadRequestException(`Solde insuffisant pour cette course (commission ${amount} F) : rechargez votre compte`);
+    if (available < amount) throw new BadRequestException(`Solde insuffisant pour cette course (commission ${money(amount)}) : rechargez votre compte`);
     return { commissionAmount: amount, commissionRule: label };
   }
 
@@ -221,7 +222,7 @@ export class BillingService implements OnModuleInit {
     const c = await m.getRepository(Company).createQueryBuilder('c').setLock('pessimistic_write').where('c.id = :id', { id: companyId }).getOne();
     if (!c) throw new NotFoundException('Entreprise introuvable');
     const balanceAfter = c.credit + amount;
-    if (type === CreditType.ADJUSTMENT && balanceAfter < 0) throw new BadRequestException(`Le crédit ne peut pas devenir négatif (solde : ${c.credit} F)`);
+    if (type === CreditType.ADJUSTMENT && balanceAfter < 0) throw new BadRequestException(`Le crédit ne peut pas devenir négatif (solde : ${money(c.credit)})`);
     await m.update(Company, companyId, { credit: balanceAfter });
     await m.save(CreditTransaction, {
       companyId,
@@ -272,7 +273,7 @@ export class BillingService implements OnModuleInit {
   async submit(companyId: string, by: string, dto: { kind: PaymentKind; amount: number; operator: string; senderPhone: string; reference?: string; proofUrl: string }) {
     if (!OPERATORS.includes(dto.operator)) throw new BadRequestException('Opérateur inconnu');
     if (dto.kind === PaymentKind.SUBSCRIPTION && dto.amount < this.cfg.subscriptionFee) {
-      throw new BadRequestException(`L’abonnement annuel est de ${this.cfg.subscriptionFee.toLocaleString('fr-FR')} F`);
+      throw new BadRequestException(`L’abonnement annuel est de ${money(this.cfg.subscriptionFee)}`);
     }
     if (await this.payments.existsBy({ companyId, status: PaymentStatus.PENDING, kind: dto.kind, amount: dto.amount, senderPhone: dto.senderPhone })) {
       throw new BadRequestException('Ce paiement est déjà en cours de vérification');

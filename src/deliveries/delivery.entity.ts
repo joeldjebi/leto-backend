@@ -61,6 +61,9 @@ export class Delivery {
   pickupContactName: string | null;
   @Column()
   pickupPhone: string;
+  /** Devise de la course (celle du pays où elle a lieu, figée à la création) */
+  @Column({ type: 'varchar', length: 3, default: 'XOF' })
+  currency: string;
   @Column({ type: 'text', nullable: true })
   pickupPhotoUrl: string | null;
   @Column({ type: 'double precision' })

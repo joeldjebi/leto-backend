@@ -1,3 +1,4 @@
+import { money } from '../countries/phone';
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { randomUUID } from 'crypto';
@@ -167,7 +168,7 @@ export class NotifyService implements OnModuleInit {
         [new Date(Date.now() - ONLINE_MS), d.targetCompanyId, d.forIndependents, d.pickupLat, d.pickupLng, RADIUS_KM],
       );
       this.send(rows.map((r) => r.id), 'NEW_ORDER', {
-        title: `Nouvelle course · ${d.price.toLocaleString('fr-FR')} F`,
+        title: `Nouvelle course · ${money(d.price)}`,
         body: `Départ ${d.pickupCommune ?? 'à proximité'}${stops > 1 ? ` · ${stops} arrêts` : ''}`,
         deliveryId: d.id,
       });

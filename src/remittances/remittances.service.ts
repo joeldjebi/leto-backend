@@ -1,3 +1,4 @@
+import { money } from '../countries/phone';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
@@ -120,7 +121,7 @@ export class RemittancesService {
     const max = balance.toRemit - balance.pending;
     if (dto.amount > max) {
       throw new BadRequestException(
-        max <= 0 ? 'Rien à verser pour le moment' : `Montant trop élevé : il vous reste ${max.toLocaleString('fr-FR')} F à verser`,
+        max <= 0 ? 'Rien à verser pour le moment' : `Montant trop élevé : il vous reste ${money(max)} à verser`,
       );
     }
     const r = await this.repo.save(

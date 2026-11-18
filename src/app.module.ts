@@ -20,6 +20,8 @@ import { NotifyService } from './notifications/notify.service';
 import { LandingController } from './landing/landing.controller';
 import { LandingService } from './landing/landing.service';
 import { CancelReasonsController, CancelReasonsService } from './cancel-reasons/cancel-reasons';
+import { CountriesController, CountriesService } from './countries/countries';
+import { Country } from './countries/country.entity';
 import { LogbookController } from './logbook/logbook.controller';
 import { Remittance } from './remittances/remittance.entity';
 import { RemittancesController } from './remittances/remittances.controller';
@@ -60,12 +62,12 @@ import { UsersController } from './users/users.controller';
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile],
+      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country],
       // Crée / met à jour les tables au démarrage (DB_SYNC=false pour désactiver).
       // À remplacer par des migrations TypeORM quand le schéma sera stabilisé.
       synchronize: process.env.DB_SYNC !== 'false',
     }),
-    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile]),
+    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
@@ -90,6 +92,7 @@ import { UsersController } from './users/users.controller';
     NotificationsController,
     LandingController,
     CancelReasonsController,
+    CountriesController,
     UploadsController,
     UsersController,
   ],
@@ -110,6 +113,7 @@ import { UsersController } from './users/users.controller';
     NotifyService,
     LandingService,
     CancelReasonsService,
+    CountriesService,
     TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

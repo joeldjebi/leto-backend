@@ -1,10 +1,10 @@
+import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
 import { Body, Controller, ForbiddenException, Get, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Type } from 'class-transformer';
 import { IsDateString, IsEnum, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, MaxLength, Min, ValidateIf } from 'class-validator';
 import { Repository } from 'typeorm';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
-import { PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
 import { Company } from '../companies/company.entity';
 import { Role, User } from '../users/user.entity';
 import { PaymentKind, PaymentStatus } from './billing.entities';
@@ -23,7 +23,7 @@ class SubmitPaymentDto {
   @IsNotEmpty({ message: 'Opérateur obligatoire' })
   operator: string;
 
-  @Matches(PHONE_REGEX, { message: PHONE_MESSAGE })
+  @IsPhone({ message: PHONE_MESSAGE })
   senderPhone: string;
 
   @IsOptional()
