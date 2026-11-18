@@ -549,8 +549,40 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /** Commandes restées sans livreur au-delà du délai fixé par l'admin : expirées (annulées) */
+  private async expireOrders() {
+    const min = this.settings.pricing.orderExpiryMin ?? 0;
+    if (!min) return;
+    const limit = new Date(Date.now() - min * 60_000);
+    const due = await this.repo.find({ where: { status: DeliveryStatus.PENDING, createdAt: LessThan(limit) }, take: 100 });
+    for (const d of due) {
+      const reason = `Aucun livreur n’a accepté la commande dans les ${min} min`;
+      const res = await this.repo.update(
+        { id: d.id, status: DeliveryStatus.PENDING },
+        { status: DeliveryStatus.CANCELLED, cancelledAt: new Date(), cancelledBy: 'Expiration', cancelReason: reason },
+      );
+      if (!res.affected) continue; // acceptée entre-temps
+      await this.closeOffers(d.id);
+      this.tracking.emitToUser(d.clientId, 'delivery:cancelled', { deliveryId: d.id, reason });
+      this.push.send([d.clientId], 'CANCELLED', {
+        title: 'Commande expirée',
+        body: `${reason}. Vous pouvez la relancer depuis l’app.`,
+        deliveryId: d.id,
+      });
+      if (d.assignedDriverId) this.push.send([d.assignedDriverId], 'CANCELLED', { title: 'Course expirée', body: reason, deliveryId: d.id });
+      if (d.targetCompanyId) {
+        this.push.office({ companyId: d.targetCompanyId }, 'CANCELLED', { title: 'Commande expirée', body: reason, link: `/courses/${d.id}`, deliveryId: d.id });
+      }
+      this.notify(await this.findOne(d.id));
+      this.logger.log(`Commande ${d.id} expirée après ${min} min sans livreur`);
+    }
+  }
+
   onModuleInit() {
-    this.timer = setInterval(() => this.autoAcceptCancelRequests().catch(() => {}), 30_000);
+    this.timer = setInterval(() => {
+      this.autoAcceptCancelRequests().catch(() => {});
+      this.expireOrders().catch((e) => this.logger.warn(`Expiration des commandes : ${(e as Error).message}`));
+    }, 30_000);
   }
 
   onModuleDestroy() {

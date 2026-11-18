@@ -59,6 +59,8 @@ export interface PricingGrid {
   deliveryCodeEnabled: boolean;
   /** Sans réponse de l'expéditeur, l'annulation signalée par le livreur est acceptée après ces minutes */
   cancelRequestAutoMin: number;
+  /** Commande sans livreur : expirée (annulée automatiquement) après ces minutes ; 0 = jamais */
+  orderExpiryMin: number;
   /** Tournées : réduction (%) par arrêt au-delà du premier, plafonnée */
   multiStopDiscountPct: number;
   multiStopDiscountMaxPct: number;
@@ -143,6 +145,7 @@ export const defaultGrid = (): PricingGrid => ({
   returnCodeEnabled: false,
   deliveryCodeEnabled: true,
   cancelRequestAutoMin: 10,
+  orderExpiryMin: 30,
   multiStopDiscountPct: 5,
   multiStopDiscountMaxPct: 25,
   surcharges: defaultSurcharges(),
