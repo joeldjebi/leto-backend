@@ -19,3 +19,7 @@ ProxyPassReverse / http://127.0.0.1:__PORT__/
 
 # Photos : 5 Mo max côté API
 LimitRequestBody 6291456
+# APK de l'app (back-office › Landing page) : jusqu'à 200 Mo, uniquement sur cette adresse
+<Location "/admin/landing/apk">
+    LimitRequestBody 209715200
+</Location>
