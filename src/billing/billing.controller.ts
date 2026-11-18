@@ -177,6 +177,12 @@ export class BillingController {
     return this.billing.setSubscription(id, dto.endsAt);
   }
 
+  @Put('companies/:id/trial')
+  @Roles(Role.SUPER_ADMIN)
+  trial(@Param('id', ParseUUIDPipe) id: string, @Body() dto: SubscriptionDto) {
+    return this.billing.setTrial(id, dto.endsAt);
+  }
+
   @Put('companies/:id/commission')
   @Roles(Role.SUPER_ADMIN)
   commission(@Param('id', ParseUUIDPipe) id: string, @Body() dto: CommissionDto) {

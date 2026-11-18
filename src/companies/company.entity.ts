@@ -22,6 +22,10 @@ export class Company {
   @Column({ type: 'timestamptz', nullable: true })
   subscriptionEndsAt: Date | null;
 
+  /** Fin de l'essai gratuit : jusque-là ni abonnement ni crédit nécessaires, aucune commission prélevée */
+  @Column({ type: 'timestamptz', nullable: true })
+  trialEndsAt: Date | null;
+
   /** Commission propre à l'entreprise (sinon : règle par défaut du SA) */
   @Column({ type: 'varchar', length: 10, nullable: true })
   commissionType: 'PERCENT' | 'FIXED' | null;

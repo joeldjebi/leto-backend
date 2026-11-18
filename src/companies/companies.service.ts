@@ -1,3 +1,4 @@
+import { BillingService } from '../billing/billing.service';
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -16,6 +17,7 @@ export class CompaniesService {
     @InjectRepository(Company) private companies: Repository<Company>,
     @InjectRepository(User) private users: Repository<User>,
     private settings: SettingsService,
+    private billing: BillingService,
   ) {}
 
   findAll(status?: string) {
@@ -63,7 +65,14 @@ export class CompaniesService {
     if (!c || c.independent) throw new BadRequestException('Entreprise introuvable');
     if (c.status !== 'PENDING' && !(approve && c.status === 'REJECTED')) throw new BadRequestException('Demande déjà traitée');
     if (!approve && !note?.trim()) throw new BadRequestException('Motif du refus obligatoire');
-    await this.companies.update(id, { status: approve ? 'APPROVED' : 'REJECTED', active: approve, reviewNote: approve ? null : note!.trim(), reviewedAt: new Date() });
+    await this.companies.update(id, {
+      status: approve ? 'APPROVED' : 'REJECTED',
+      active: approve,
+      reviewNote: approve ? null : note!.trim(),
+      reviewedAt: new Date(),
+      // Essai gratuit à partir de la validation (une seule fois)
+      ...(approve && !c.trialEndsAt ? { trialEndsAt: this.billing.trialEndFromNow() } : {}),
+    });
     return this.companies.findOneBy({ id });
   }
 
@@ -71,7 +80,7 @@ export class CompaniesService {
   async create(dto: CreateCompanyDto) {
     await this.ensurePhoneFree(dto.managerPhone);
     return this.dataSource.transaction(async (m) => {
-      const company = await m.save(Company, { name: dto.name, phone: dto.phone });
+      const company = await m.save(Company, { name: dto.name, phone: dto.phone, trialEndsAt: this.billing.trialEndFromNow() });
       await m.save(User, {
         name: dto.managerName,
         phone: dto.managerPhone,
@@ -134,8 +143,10 @@ export class CompaniesService {
               (SELECT count(*)::int FROM delivery_stops s JOIN deliveries d ON d.id = s."deliveryId" WHERE d."companyId" = c.id AND s.status = 'DELIVERED') AS delivered,
               (SELECT count(*)::int FROM delivery_stops s JOIN deliveries d ON d.id = s."deliveryId" WHERE d."companyId" = c.id AND s.status = 'FAILED') AS failed
          FROM companies c
-        WHERE c.active AND NOT c.independent AND c."subscriptionEndsAt" > now()
+        WHERE c.active AND NOT c.independent AND c.status = 'APPROVED'
+          AND (NOT $1::boolean OR c."subscriptionEndsAt" > now() OR c."trialEndsAt" > now())
         ORDER BY c.name`,
+      [this.billing.config.subscriptionEnabled],
     );
     const companies = await this.companies.findBy({ id: In(rows.map((r) => r.id)) });
     return rows.map((r) => {

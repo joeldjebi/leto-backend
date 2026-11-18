@@ -87,8 +87,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     }
     if (opts.companyId) {
       company = await this.companies.findOneBy({ id: opts.companyId });
-      const subscribed = !!company?.subscriptionEndsAt && company.subscriptionEndsAt.getTime() > Date.now();
-      if (!company?.active || !subscribed) throw new BadRequestException('Cette entreprise ne prend pas de commandes pour le moment');
+      // Abonnée, en essai gratuit, ou abonnements désactivés par LETO
+      if (!company?.active || !this.billing.subscribed(company)) throw new BadRequestException('Cette entreprise ne prend pas de commandes pour le moment');
     }
     const grid = this.settings.gridFor(company);
     const vehicleType = dto.vehicleType ?? VehicleType.MOTO;

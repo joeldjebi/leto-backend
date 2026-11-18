@@ -23,10 +23,14 @@ export interface BillingConfig {
   commissionType: CommissionType; // règle par défaut
   commissionValue: number; // % ou FCFA
   accounts: MobileMoneyAccount[]; // comptes LETO où les entreprises paient
+  subscriptionEnabled: boolean; // abonnement annuel exigé des entreprises
+  trialDays: number; // essai gratuit des nouvelles entreprises (0 = pas d'essai)
 }
 
 const KEY = 'billing';
-const DEFAULT: BillingConfig = { subscriptionFee: 100_000, commissionType: 'PERCENT', commissionValue: 10, accounts: [] };
+const DEFAULT: BillingConfig = { subscriptionFee: 100_000, commissionType: 'PERCENT', commissionValue: 10, accounts: [], subscriptionEnabled: true, trialDays: 0 };
+const DAY = 86_400_000;
+const TRIAL_RULE = 'Essai gratuit';
 export const OPERATORS = ['Wave', 'Orange Money', 'MTN MoMo', 'Moov Money'];
 
 /** États de course où la commission est réservée sur le crédit (pas encore prélevée) */
@@ -69,6 +73,11 @@ export class BillingService implements OnModuleInit {
 
   async updateConfig(input: Partial<BillingConfig>, by: string) {
     const next: BillingConfig = { ...this.cfg };
+    if (input.subscriptionEnabled !== undefined) {
+      if (typeof input.subscriptionEnabled !== 'boolean') throw new BadRequestException('Abonnement : oui ou non attendu');
+      next.subscriptionEnabled = input.subscriptionEnabled;
+    }
+    if (input.trialDays !== undefined) next.trialDays = this.int(input.trialDays, 'Essai gratuit (jours)', 0, 365);
     if (input.subscriptionFee !== undefined) next.subscriptionFee = this.int(input.subscriptionFee, 'Abonnement annuel', 0, 100_000_000);
     if (input.commissionType !== undefined || input.commissionValue !== undefined) {
       const { type, value } = this.validRule(input.commissionType ?? next.commissionType, input.commissionValue ?? next.commissionValue);
@@ -119,10 +128,25 @@ export class BillingService implements OnModuleInit {
     return row.total as number;
   }
 
-  /** Abonnement actif (les livreurs indépendants n'ont pas d'abonnement) */
-  private subscribed(c: Company) {
-    if (c.independent) return true;
+  /** Abonnement actif (les livreurs indépendants n'en ont pas ; inutile si le SA a désactivé les abonnements ou pendant l'essai) */
+  subscribed(c: Company) {
+    if (c.independent || !this.cfg.subscriptionEnabled || this.inTrial(c)) return true;
     return !!c.subscriptionEndsAt && c.subscriptionEndsAt.getTime() > Date.now();
+  }
+
+  /** Essai gratuit en cours (entreprises uniquement) */
+  inTrial(c: Pick<Company, 'trialEndsAt'> & { independent?: boolean }) {
+    return !c.independent && !!c.trialEndsAt && c.trialEndsAt.getTime() > Date.now();
+  }
+
+  /** Fin d'essai pour une entreprise validée ou créée maintenant (null si pas d'essai) */
+  trialEndFromNow() {
+    return this.cfg.trialDays > 0 ? new Date(Date.now() + this.cfg.trialDays * DAY) : null;
+  }
+
+  /** Jours d'essai restants (arrondi au jour supérieur) */
+  private trialDaysLeft(c: Company) {
+    return this.inTrial(c) ? Math.ceil((c.trialEndsAt!.getTime() - Date.now()) / DAY) : 0;
   }
 
   /**
@@ -134,6 +158,8 @@ export class BillingService implements OnModuleInit {
     const c = await m.getRepository(Company).createQueryBuilder('c').setLock('pessimistic_write').where('c.id = :id', { id: companyId }).getOne();
     if (c?.independent) return this.reserveIndependent(m, c, price);
     if (!c || !c.active) throw new BadRequestException('Votre entreprise est suspendue : contactez votre gérant');
+    // Essai gratuit : course sans commission, crédit non nécessaire
+    if (this.inTrial(c)) return { commissionAmount: 0, commissionRule: TRIAL_RULE };
     if (!this.subscribed(c)) throw new BadRequestException('L’abonnement annuel de votre entreprise n’est pas actif : contactez votre gérant');
     const { amount, label } = this.commission(c, price);
     const available = c.credit - (await this.reserved(m, companyId));
@@ -172,6 +198,7 @@ export class BillingService implements OnModuleInit {
       return { ok: true, reason: null, independent: true };
     }
     if (!c?.active) return { ok: false, reason: 'Votre entreprise est suspendue' };
+    if (this.inTrial(c)) return { ok: true, reason: null, trialDaysLeft: this.trialDaysLeft(c) };
     if (!this.subscribed(c)) return { ok: false, reason: 'Abonnement de votre entreprise expiré : contactez votre gérant' };
     const available = c.credit - (await this.reserved(this.db.manager, companyId));
     if (available <= 0) return { ok: false, reason: 'Crédit de votre entreprise épuisé : contactez votre gérant' };
@@ -181,7 +208,7 @@ export class BillingService implements OnModuleInit {
   /** Prix modifié avant la fin (arrêt retiré) : la commission réservée suit le nouveau prix */
   async recompute(deliveryId: string) {
     const d = await this.db.getRepository(Delivery).findOneBy({ id: deliveryId });
-    if (!d?.companyId || d.commissionAmount == null || d.commissionChargedAt) return;
+    if (!d?.companyId || d.commissionAmount == null || d.commissionChargedAt || d.commissionRule === TRIAL_RULE) return;
     const c = await this.companies.findOneBy({ id: d.companyId });
     if (!c) return;
     const { amount, label } = this.commission(c, d.price);
@@ -260,6 +287,10 @@ export class BillingService implements OnModuleInit {
       available: c.credit - reserved,
       subscriptionEndsAt: c.subscriptionEndsAt,
       subscribed: this.subscribed(c),
+      subscriptionRequired: this.cfg.subscriptionEnabled,
+      trialEndsAt: c.trialEndsAt,
+      inTrial: this.inTrial(c),
+      trialDaysLeft: this.trialDaysLeft(c),
       rule: this.rule(c),
       month,
       config: this.config,
@@ -272,6 +303,7 @@ export class BillingService implements OnModuleInit {
 
   async submit(companyId: string, by: string, dto: { kind: PaymentKind; amount: number; operator: string; senderPhone: string; reference?: string; proofUrl: string }) {
     if (!OPERATORS.includes(dto.operator)) throw new BadRequestException('Opérateur inconnu');
+    if (dto.kind === PaymentKind.SUBSCRIPTION && !this.cfg.subscriptionEnabled) throw new BadRequestException('Les abonnements ne sont pas demandés pour le moment');
     if (dto.kind === PaymentKind.SUBSCRIPTION && dto.amount < this.cfg.subscriptionFee) {
       throw new BadRequestException(`L’abonnement annuel est de ${money(this.cfg.subscriptionFee)}`);
     }
@@ -329,6 +361,18 @@ export class BillingService implements OnModuleInit {
     const date = endsAt ? new Date(endsAt) : null;
     if (date && Number.isNaN(date.getTime())) throw new BadRequestException('Date invalide');
     await this.companies.update(companyId, { subscriptionEndsAt: date });
+    return this.overview(companyId);
+  }
+
+  /** SA : fin de l'essai gratuit d'une entreprise (null = pas d'essai / arrêter l'essai) */
+  async setTrial(companyId: string, endsAt: string | null) {
+    const date = endsAt ? new Date(endsAt) : null;
+    if (date && Number.isNaN(date.getTime())) throw new BadRequestException('Date invalide');
+    const c = await this.companies.findOneBy({ id: companyId });
+    if (!c) throw new NotFoundException('Entreprise introuvable');
+    if (c.independent) throw new BadRequestException('Les livreurs indépendants n’ont pas d’essai gratuit');
+    await this.companies.update(companyId, { trialEndsAt: date });
+    this.tracking.emitToCompany(companyId, 'billing:changed', { companyId });
     return this.overview(companyId);
   }
 
