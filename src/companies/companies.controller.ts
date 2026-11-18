@@ -1,3 +1,4 @@
+import { NotifyService } from '../notifications/notify.service';
 import { Body, Controller, Delete, Get, Param, ParseBoolPipe, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
 import { AuthUser, CurrentUser, Public, Roles } from '../common/decorators';
 import { TrackingGateway } from '../tracking/tracking.gateway';
@@ -10,6 +11,7 @@ export class CompaniesController {
   constructor(
     private service: CompaniesService,
     private tracking: TrackingGateway,
+    private notify: NotifyService,
   ) {}
 
   // ----- Admin plateforme -----
@@ -25,6 +27,11 @@ export class CompaniesController {
   async apply(@Body() dto: ApplyCompanyDto) {
     const r = await this.service.apply(dto);
     this.tracking.server?.to('super-admin').emit('companies:changed', { id: r.id });
+    this.notify.office({ sa: true }, 'COMPANY_APPLY', {
+      title: 'Nouvelle entreprise à valider',
+      body: `${dto.name} demande à devenir partenaire`,
+      link: '/entreprises',
+    });
     return r;
   }
 

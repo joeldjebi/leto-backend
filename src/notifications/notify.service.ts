@@ -51,6 +51,24 @@ const ONLINE_MS = 10 * 60_000;
 /** Rayon des livreurs prévenus d'une nouvelle course */
 const RADIUS_KM = 10;
 
+/** Notifications du back-office : catégorie (filtrable par l'utilisateur) et son joué */
+export const OFFICE_KINDS = {
+  NEW_ORDER: { label: 'Nouvelles commandes', sound: 'NEW_ORDER' },
+  ACCEPTED: { label: 'Courses acceptées', sound: 'ASSIGNED' },
+  DECLINED: { label: 'Affectations refusées', sound: 'CANCELLED' },
+  FINISHED: { label: 'Tournées terminées', sound: 'CLIENT_UPDATE' },
+  FAILED: { label: 'Livraisons non effectuées', sound: 'UPDATED' },
+  CANCELLED: { label: 'Annulations', sound: 'CANCELLED' },
+  CANCEL_REQUEST: { label: 'Annulations signalées par les livreurs', sound: 'UPDATED' },
+  DISPUTE: { label: 'Litiges', sound: 'CANCELLED' },
+  CREDIT_LOW: { label: 'Crédit insuffisant', sound: 'CANCELLED' },
+  PAYMENT: { label: 'Paiements', sound: 'ASSIGNED' },
+  REMITTANCE: { label: 'Versements des livreurs', sound: 'CLIENT_UPDATE' },
+  COMPANY_APPLY: { label: 'Demandes des entreprises', sound: 'ASSIGNED' },
+  INDEPENDENT: { label: 'Dossiers des livreurs indépendants', sound: 'ASSIGNED' },
+} as const satisfies Record<string, { label: string; sound: SoundEvent }>;
+export type OfficeKind = keyof typeof OFFICE_KINDS;
+
 export interface NotifyPayload {
   title: string;
   body: string;
@@ -143,6 +161,20 @@ export class NotifyService implements OnModuleInit {
     const s = this.sound(event);
     const payload = { id: randomUUID(), type: event, ...p, sound: { id: s.id, url: s.url } };
     for (const id of new Set(userIds.filter((x): x is string => !!x))) this.tracking.emitToUser(id, 'notify', payload);
+  }
+
+  /**
+   * Notification du back-office (gérants d'une entreprise et/ou Super Admin) : le navigateur
+   * l'affiche en notification locale avec le son de l'événement. `link` = route du back-office (#/…).
+   */
+  office(to: { companyId?: string | null; sa?: boolean }, kind: OfficeKind, p: { title: string; body: string; link?: string; deliveryId?: string }) {
+    const s = this.sound(OFFICE_KINDS[kind].sound);
+    const payload = { id: randomUUID(), kind, ...p, sound: { id: s.id, url: s.url } };
+    const server = this.tracking.server;
+    if (!server) return;
+    // Les gérants sont dans company:<id> ; le SA dans super-admin (un seul envoi par socket)
+    const rooms = [to.companyId ? `company:${to.companyId}` : null, to.sa ? 'super-admin' : null].filter((r): r is string => !!r);
+    if (rooms.length) server.to(rooms).emit('office:notify', payload);
   }
 
   /**

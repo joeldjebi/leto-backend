@@ -1,3 +1,4 @@
+import { NotifyService } from '../notifications/notify.service';
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -84,6 +85,7 @@ export class IndependentsService implements OnModuleInit {
     @InjectRepository(User) private users: Repository<User>,
     @InjectRepository(Company) private companies: Repository<Company>,
     private tracking: TrackingGateway,
+    private notify: NotifyService,
   ) {}
 
   async onModuleInit() {
@@ -234,6 +236,12 @@ export class IndependentsService implements OnModuleInit {
     p.history = [...p.history, { at: p.submittedAt.toISOString(), action: 'SUBMITTED' }];
     await this.profiles.save(p);
     this.tracking.server?.to('super-admin').emit('independents:changed', { id: p.id });
+    const who = await this.users.findOneBy({ id: p.userId });
+    this.notify.office({ sa: true }, 'INDEPENDENT', {
+      title: 'Dossier de livreur indépendant',
+      body: `${who?.name ?? 'Un livreur'} a envoyé son dossier : à vérifier`,
+      link: '/independants',
+    });
     return this.withLinks(p);
   }
 

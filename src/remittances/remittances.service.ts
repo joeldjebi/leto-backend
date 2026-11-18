@@ -1,3 +1,4 @@
+import { NotifyService } from '../notifications/notify.service';
 import { money } from '../countries/phone';
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -39,6 +40,7 @@ export class RemittancesService {
     @InjectRepository(User) private users: Repository<User>,
     @InjectRepository(Company) private companies: Repository<Company>,
     private tracking: TrackingGateway,
+    private notify: NotifyService,
   ) {}
 
   /** Soldes de tous les livreurs d'une entreprise (ou d'un seul) */
@@ -128,6 +130,12 @@ export class RemittancesService {
       this.repo.create({ ...dto, reference: dto.reference || null, proofUrl: dto.proofUrl || null, note: dto.note || null, driverId, companyId, createdBy: 'DRIVER' }),
     );
     this.tracking.emitToCompany(companyId, 'remittance:new', { id: r.id, driverId, amount: r.amount });
+    const drv = await this.users.findOneBy({ id: driverId });
+    this.notify.office({ companyId }, 'REMITTANCE', {
+      title: 'Versement à confirmer',
+      body: `${drv?.name ?? 'Un livreur'} déclare avoir versé ${money(r.amount)}`,
+      link: '/encaissements',
+    });
     return r;
   }
 

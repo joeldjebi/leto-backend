@@ -152,6 +152,17 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       void this.push.newOrder(delivery, ordered.length);
     }
     if (company) this.tracking.emitToCompany(company.id, 'delivery:new', { deliveryId: delivery.id });
+    // Back-office : l'entreprise choisie par le client (pas pour ses propres commandes) et le SA
+    this.push.office(
+      { companyId: company && opts.source !== 'COMPANY' ? company.id : null, sa: true },
+      'NEW_ORDER',
+      {
+        title: opts.source === 'COMPANY' ? `Commande saisie par ${company?.name ?? 'une entreprise'}` : company ? 'Nouvelle commande pour vous' : 'Nouvelle commande',
+        body: `${money(delivery.price)} · ${ordered.length} arrêt${ordered.length > 1 ? 's' : ''} · départ ${delivery.pickupCommune ?? delivery.pickupAddress}`,
+        link: `/courses/${delivery.id}`,
+        deliveryId: delivery.id,
+      },
+    );
     return this.notify(await this.findOne(delivery.id, true));
   }
 
@@ -248,6 +259,12 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     if (d.targetCompanyId) {
       const driver = await this.users.findOneBy({ id: driverId });
       this.tracking.emitToCompany(d.targetCompanyId, 'delivery:assignment-declined', { deliveryId: id, driver: driver?.name, reason });
+      this.push.office({ companyId: d.targetCompanyId }, 'DECLINED', {
+        title: 'Affectation refusée',
+        body: `${driver?.name ?? 'Le livreur'} a refusé la course${reason ? ` : ${reason}` : ''}. Choisissez un autre livreur.`,
+        link: `/courses/${id}`,
+        deliveryId: id,
+      });
     }
     return this.notify(await this.findOne(id));
   }
@@ -410,6 +427,15 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       this.push.send([d.assignedDriverId], 'CANCELLED', { title: 'Course annulée', body: 'L’expéditeur a annulé la course', deliveryId: id });
     }
     if (d.companyId && fee) this.tracking.emitToCompany(d.companyId, 'delivery:cancel-fee', { deliveryId: id, fee });
+    const concerned = d.companyId ?? d.targetCompanyId;
+    if (concerned) {
+      this.push.office({ companyId: concerned }, 'CANCELLED', {
+        title: 'Course annulée par le client',
+        body: `${reason ?? 'Sans motif'}${fee ? ` · frais de déplacement ${money(fee)}` : ''}`,
+        link: `/courses/${id}`,
+        deliveryId: id,
+      });
+    }
     return this.notify(await this.findOne(id, true));
   }
 
@@ -486,6 +512,14 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       recipientName: stop.recipientName,
       autoMin: this.settings.pricing.cancelRequestAutoMin,
     });
+    if (d.companyId && !d.company?.independent) {
+      this.push.office({ companyId: d.companyId }, 'CANCEL_REQUEST', {
+        title: 'Annulation signalée par un livreur',
+        body: `${d.driver?.name ?? 'Le livreur'} : ${stop.recipientName} annule${note ? ` (« ${note} »)` : ''}. L’expéditeur doit confirmer.`,
+        link: `/courses/${id}`,
+        deliveryId: id,
+      });
+    }
     return this.notify(await this.findOne(id));
   }
 
@@ -531,6 +565,12 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     if (stop.disputedAt) throw new BadRequestException('Déjà contesté');
     await this.stops.update(stopId, { disputedAt: new Date(), disputeNote: note ?? null });
     if (d.companyId) this.tracking.emitToCompany(d.companyId, 'dispute:new', { deliveryId: id, stopId });
+    this.push.office({ companyId: d.companyId, sa: true }, 'DISPUTE', {
+      title: 'Nouveau litige',
+      body: `L’expéditeur conteste l’échec chez ${stop.recipientName}${note ? ` : « ${note} »` : ''}`,
+      link: '/litiges',
+      deliveryId: id,
+    });
     return this.notify(await this.findOne(id, true));
   }
 
@@ -585,6 +625,14 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     });
     await this.closeOffers(id);
     const accepted = await this.findOne(id);
+    if (accepted.companyId && !accepted.company?.independent) {
+      this.push.office({ companyId: accepted.companyId }, 'ACCEPTED', {
+        title: 'Course acceptée',
+        body: `${accepted.driver?.name ?? 'Un livreur'} · ${money(accepted.price)} · départ ${accepted.pickupCommune ?? accepted.pickupAddress}`,
+        link: `/courses/${id}`,
+        deliveryId: id,
+      });
+    }
     this.push.send([accepted.clientId], 'CLIENT_UPDATE', {
       title: 'Livreur trouvé',
       body: `${accepted.driver?.name ?? 'Un livreur'}${accepted.company?.independent ? ' (livreur indépendant)' : ''} arrive au point de départ`,
@@ -653,6 +701,12 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     });
     this.tracking.emitToUser(d.clientId, 'stop:failed', { deliveryId: id, stopId, recipientName: stop.recipientName });
     this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Livraison non effectuée', body: `${stop.recipientName} : ${dto.reason === 'ABSENT' ? 'destinataire absent' : 'voir le détail'}`, deliveryId: id });
+    this.push.office({ companyId: d.companyId }, 'FAILED', {
+      title: 'Livraison non effectuée',
+      body: `${stop.recipientName} : ${dto.reason === 'ABSENT' ? 'destinataire absent' : dto.reason === 'REFUSED' ? 'colis refusé' : 'voir le détail'}`,
+      link: `/courses/${id}`,
+      deliveryId: id,
+    });
     return this.afterStop(id);
   }
 
@@ -687,6 +741,14 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     await this.billing.charge(id);
     const d = await this.repo.findOneBy({ id });
     if (d) this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Course terminée', body: 'Tous les arrêts sont traités. Merci d’avoir choisi LETO !', deliveryId: id });
+    if (d?.companyId) {
+      this.push.office({ companyId: d.companyId }, 'FINISHED', {
+        title: 'Tournée terminée',
+        body: `${money(d.price)} · tous les arrêts sont traités`,
+        link: `/courses/${id}`,
+        deliveryId: id,
+      });
+    }
   }
 
   /** Le livreur rapporte les colis non livrés : l'expéditeur lui donne son code de retour */
@@ -752,6 +814,9 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     this.tracking.emitToUser(d.clientId, 'delivery:cancelled', { deliveryId: id, reason });
     if (d.driverId) this.tracking.emitToUser(d.driverId, 'delivery:cancelled', { deliveryId: id, reason });
     this.push.send([d.clientId, d.driverId], 'CANCELLED', { title: 'Course annulée par LETO', body: reason, deliveryId: id });
+    if (d.companyId ?? d.targetCompanyId) {
+      this.push.office({ companyId: d.companyId ?? d.targetCompanyId }, 'CANCELLED', { title: 'Course annulée par LETO', body: reason, link: `/courses/${id}`, deliveryId: id });
+    }
     return this.notify(await this.findOne(id));
   }
 

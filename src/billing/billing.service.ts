@@ -1,3 +1,4 @@
+import { NotifyService } from '../notifications/notify.service';
 import { money } from '../countries/phone';
 import { BadRequestException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -58,7 +59,11 @@ export class BillingService implements OnModuleInit {
     @InjectRepository(CreditTransaction) private txs: Repository<CreditTransaction>,
     private tracking: TrackingGateway,
     private independents: IndependentsService,
+    private notify: NotifyService,
   ) {}
+
+  /** Alerte « crédit insuffisant » : au plus une toutes les 10 minutes par entreprise */
+  private lowAlertAt = new Map<string, number>();
 
   async onModuleInit() {
     const row = await this.settings.findOneBy({ key: KEY });
@@ -165,6 +170,14 @@ export class BillingService implements OnModuleInit {
     const available = c.credit - (await this.reserved(m, companyId));
     if (available < amount) {
       this.tracking.emitToCompany(companyId, 'billing:low', { available, needed: amount });
+      if (Date.now() - (this.lowAlertAt.get(companyId) ?? 0) > 10 * 60_000) {
+        this.lowAlertAt.set(companyId, Date.now());
+        this.notify.office({ companyId }, 'CREDIT_LOW', {
+          title: 'Crédit insuffisant',
+          body: `Un livreur n’a pas pu accepter une course : il manque ${money(amount - Math.max(0, available))}. Rechargez votre crédit.`,
+          link: '/credit',
+        });
+      }
       throw new BadRequestException('Crédit de votre entreprise insuffisant pour cette course : demandez à votre gérant de recharger');
     }
     return { commissionAmount: amount, commissionRule: label };
@@ -312,6 +325,12 @@ export class BillingService implements OnModuleInit {
     }
     const p = await this.payments.save(this.payments.create({ ...dto, reference: dto.reference || null, companyId, submittedBy: by }));
     this.tracking.emitToCompany(companyId, 'payment:new', { id: p.id });
+    const co = await this.companies.findOneBy({ id: companyId });
+    this.notify.office({ sa: true }, 'PAYMENT', {
+      title: 'Paiement à vérifier',
+      body: `${co?.name ?? 'Une entreprise'} · ${dto.kind === PaymentKind.SUBSCRIPTION ? 'abonnement' : 'recharge'} de ${money(dto.amount)} (${dto.operator})`,
+      link: '/paiements',
+    });
     return p;
   }
 
@@ -339,6 +358,11 @@ export class BillingService implements OnModuleInit {
       return p;
     });
     this.tracking.emitToCompany(result.companyId, 'billing:changed', { companyId: result.companyId });
+    this.notify.office({ companyId: result.companyId }, 'PAYMENT', {
+      title: 'Paiement validé',
+      body: result.kind === PaymentKind.TOPUP ? `${money(amount ?? result.amount)} ajouté(s) à votre crédit` : 'Votre abonnement est prolongé d’un an',
+      link: '/credit',
+    });
     return this.payments.findOne({ where: { id }, relations: { company: true } });
   }
 
@@ -347,6 +371,7 @@ export class BillingService implements OnModuleInit {
     if (!res.affected) throw new BadRequestException('Paiement déjà traité');
     const p = await this.payments.findOne({ where: { id }, relations: { company: true } });
     this.tracking.emitToCompany(p.companyId, 'billing:changed', { companyId: p.companyId });
+    this.notify.office({ companyId: p.companyId }, 'PAYMENT', { title: 'Paiement refusé', body: `${money(p.amount)} : ${note}`, link: '/credit' });
     return p;
   }
 
