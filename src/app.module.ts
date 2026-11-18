@@ -19,6 +19,7 @@ import { NotificationsController } from './notifications/notifications.controlle
 import { NotifyService } from './notifications/notify.service';
 import { LandingController } from './landing/landing.controller';
 import { LandingService } from './landing/landing.service';
+import { CancelReasonsController, CancelReasonsService } from './cancel-reasons/cancel-reasons';
 import { LogbookController } from './logbook/logbook.controller';
 import { Remittance } from './remittances/remittance.entity';
 import { RemittancesController } from './remittances/remittances.controller';
@@ -88,6 +89,7 @@ import { UsersController } from './users/users.controller';
     IdentityFilesController,
     NotificationsController,
     LandingController,
+    CancelReasonsController,
     UploadsController,
     UsersController,
   ],
@@ -107,6 +109,7 @@ import { UsersController } from './users/users.controller';
     IndependentsService,
     NotifyService,
     LandingService,
+    CancelReasonsService,
     TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

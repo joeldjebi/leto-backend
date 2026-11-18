@@ -45,8 +45,8 @@ export class DeliveriesController {
 
   @Post(':id/cancel')
   @Roles(Role.CLIENT)
-  cancel(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.service.cancel(user.sub, id);
+  cancel(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CancelStopDto) {
+    return this.service.cancel(user.sub, id, 'Client', dto?.reason?.trim() || null);
   }
 
   @Post(':id/stops/:stopId/cancel')

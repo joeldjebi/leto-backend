@@ -381,7 +381,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Annulation de toute la course : gratuite en attente, frais de déplacement possibles si le livreur est en route */
-  async cancel(clientId: string, id: string, by = 'Client') {
+  async cancel(clientId: string, id: string, by = 'Client', reason: string | null = null) {
     const d = await this.oneForClient(clientId, id);
     if (d.status === DeliveryStatus.PICKED_UP) {
       throw new BadRequestException('Les colis sont déjà récupérés : annulez les arrêts un par un');
@@ -392,15 +392,15 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     const fee = this.cancellationFee(d);
     const res = await this.repo.update(
       { id, clientId, status: d.status },
-      { status: DeliveryStatus.CANCELLED, cancelledAt: new Date(), cancelledBy: by, cancellationFee: fee || null },
+      { status: DeliveryStatus.CANCELLED, cancelledAt: new Date(), cancelledBy: by, cancellationFee: fee || null, ...(reason ? { cancelReason: reason } : {}) },
     );
     if (!res.affected) throw new ConflictException('La course vient de changer d’état : réessayez');
     await this.closeOffers(id);
     if (d.driverId) {
-      this.tracking.emitToUser(d.driverId, 'delivery:cancelled', { deliveryId: id, reason: 'Annulée par l’expéditeur', fee });
+      this.tracking.emitToUser(d.driverId, 'delivery:cancelled', { deliveryId: id, reason: reason ?? 'Annulée par l’expéditeur', fee });
       this.push.send([d.driverId], 'CANCELLED', {
         title: 'Course annulée',
-        body: `L’expéditeur a annulé la course${fee ? ` · frais de déplacement ${fee.toLocaleString('fr-FR')} F` : ''}`,
+        body: `L’expéditeur a annulé la course${reason ? ` : ${reason}` : ''}${fee ? ` · frais de déplacement ${fee.toLocaleString('fr-FR')} F` : ''}`,
         deliveryId: id,
       });
     } else if (d.assignedDriverId) {
@@ -428,7 +428,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     const remaining = d.stops.filter((s) => s.status === StopStatus.PENDING && s.id !== stopId);
     const beforePickup = d.status !== DeliveryStatus.PICKED_UP;
     // Dernier arrêt avant la récupération : c'est toute la course qui est annulée
-    if (beforePickup && remaining.length === 0) return this.cancel(d.clientId, d.id, by);
+    if (beforePickup && remaining.length === 0) return this.cancel(d.clientId, d.id, by, reason);
 
     await this.stops.update(stopId, {
       status: StopStatus.CANCELLED,
