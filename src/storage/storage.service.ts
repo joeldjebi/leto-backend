@@ -84,8 +84,12 @@ export class StorageService {
   }
 
   /** Lien de lecture signé (Wasabi), valable [expiresIn] secondes */
-  signedUrl(name: string, folder: StorageFolder = 'photos', expiresIn = 3600) {
-    return getSignedUrl(this.s3, new GetObjectCommand({ Bucket: this.bucket(folder), Key: this.key(folder, name) }), { expiresIn });
+  signedUrl(name: string, folder: StorageFolder = 'photos', expiresIn = 3600, disposition?: string) {
+    return getSignedUrl(
+      this.s3,
+      new GetObjectCommand({ Bucket: this.bucket(folder), Key: this.key(folder, name), ...(disposition ? { ResponseContentDisposition: disposition } : {}) }),
+      { expiresIn },
+    );
   }
 
   localPath(name: string, folder: StorageFolder = 'photos') {

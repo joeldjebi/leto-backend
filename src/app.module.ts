@@ -17,6 +17,8 @@ import { IdentityFilesController, IndependentsController } from './independents/
 import { IndependentsService } from './independents/independents.service';
 import { NotificationsController } from './notifications/notifications.controller';
 import { NotifyService } from './notifications/notify.service';
+import { LandingController } from './landing/landing.controller';
+import { LandingService } from './landing/landing.service';
 import { LogbookController } from './logbook/logbook.controller';
 import { Remittance } from './remittances/remittance.entity';
 import { RemittancesController } from './remittances/remittances.controller';
@@ -85,6 +87,7 @@ import { UsersController } from './users/users.controller';
     IndependentsController,
     IdentityFilesController,
     NotificationsController,
+    LandingController,
     UploadsController,
     UsersController,
   ],
@@ -103,6 +106,7 @@ import { UsersController } from './users/users.controller';
     StatsService,
     IndependentsService,
     NotifyService,
+    LandingService,
     TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

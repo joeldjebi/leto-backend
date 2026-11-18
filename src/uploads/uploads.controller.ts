@@ -8,7 +8,7 @@ import { Public } from '../common/decorators';
 import { StorageService } from '../storage/storage.service';
 
 const EXT: Record<string, string> = { 'image/jpeg': '.jpg', 'image/png': '.png', 'image/webp': '.webp', 'image/heic': '.heic' };
-const NAME_REGEX = /^[0-9a-f-]{36}\.(jpg|png|webp|heic|wav)$/;
+const NAME_REGEX = /^[0-9a-f-]{36}\.(jpg|png|webp|heic|wav|apk)$/;
 
 /**
  * Photos (adresses, preuves d'échec) : envoyées par l'app, stockées sur Wasabi (ou en local en dev).
@@ -56,9 +56,16 @@ export class UploadsController {
     if (!NAME_REGEX.test(name)) throw new NotFoundException();
     // Fichier local (développement, ou photo antérieure au passage à Wasabi)
     const path = this.storage.localPath(name);
-    if (existsSync(path)) return res.sendFile(path);
+    const apk = name.endsWith('.apk');
+    if (existsSync(path)) {
+      if (apk) {
+        res.setHeader('Content-Type', 'application/vnd.android.package-archive');
+        res.setHeader('Content-Disposition', 'attachment; filename="LETO.apk"');
+      }
+      return res.sendFile(path);
+    }
     if (!this.storage.usesWasabi) throw new NotFoundException();
     res.setHeader('Cache-Control', 'private, max-age=3000');
-    return res.redirect(302, await this.storage.signedUrl(name));
+    return res.redirect(302, await this.storage.signedUrl(name, 'photos', 3600, apk ? 'attachment; filename="LETO.apk"' : undefined));
   }
 }

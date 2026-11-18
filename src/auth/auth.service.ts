@@ -102,6 +102,12 @@ export class AuthService implements OnApplicationBootstrap {
     if (!user || !(await bcrypt.compare(dto.password, user.passwordHash))) {
       throw new UnauthorizedException('Numéro ou mot de passe incorrect');
     }
+    if (user.company?.status === 'PENDING') {
+      throw new UnauthorizedException('Votre demande d’inscription est en cours de validation par LETO. Vous serez contacté dès qu’elle est acceptée.');
+    }
+    if (user.company?.status === 'REJECTED') {
+      throw new UnauthorizedException(`Votre demande d’inscription n’a pas été acceptée${user.company.reviewNote ? ` : ${user.company.reviewNote}` : ''}. Contactez LETO.`);
+    }
     if (!user.active || (user.company && !user.company.active)) {
       throw new UnauthorizedException('Compte désactivé');
     }

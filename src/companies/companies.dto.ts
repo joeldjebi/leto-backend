@@ -1,4 +1,5 @@
-import { ArrayMinSize, IsArray, IsIn, IsNotEmpty, IsOptional, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import { Type } from 'class-transformer';
+import { ArrayMinSize, IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
 import { PersonDto, PHONE_MESSAGE, PHONE_REGEX } from '../common/dto';
 
 export class CreateCompanyDto {
@@ -20,6 +21,18 @@ export class CreateCompanyDto {
   @IsString()
   @MinLength(6, { message: 'Mot de passe du gérant : 6 caractères minimum' })
   managerPassword: string;
+}
+
+/** Demande d'inscription d'une entreprise de livraison (depuis la landing page), validée ensuite par LETO */
+export class ApplyCompanyDto extends CreateCompanyDto {
+  @IsOptional() @IsString() @MaxLength(40) commune?: string;
+  @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(10000) drivers?: number;
+  @IsOptional() @IsArray() @IsIn(['MOTO', 'CAR', 'CARGO'], { each: true }) vehicles?: string[];
+  @IsOptional() @IsString() @MaxLength(800) message?: string;
+}
+
+export class ReviewNoteDto {
+  @IsString() @IsNotEmpty({ message: 'Motif obligatoire' }) @MaxLength(500) note: string;
 }
 
 export class UpdateCompanyDto {

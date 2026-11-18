@@ -1,18 +1,43 @@
-import { Body, Controller, Delete, Get, Param, ParseBoolPipe, Patch, Post, Put, Query } from '@nestjs/common';
-import { AuthUser, CurrentUser, Roles } from '../common/decorators';
+import { Body, Controller, Delete, Get, Param, ParseBoolPipe, ParseUUIDPipe, Patch, Post, Put, Query } from '@nestjs/common';
+import { AuthUser, CurrentUser, Public, Roles } from '../common/decorators';
+import { TrackingGateway } from '../tracking/tracking.gateway';
 import { Role } from '../users/user.entity';
-import { CreateCompanyDto, DriverDto, DriverVehicleDto, UpdateCompanyDto, VehiclesDto } from './companies.dto';
+import { ApplyCompanyDto, CreateCompanyDto, DriverDto, DriverVehicleDto, ReviewNoteDto, UpdateCompanyDto, VehiclesDto } from './companies.dto';
 import { CompaniesService } from './companies.service';
 
 @Controller('companies')
 export class CompaniesController {
-  constructor(private service: CompaniesService) {}
+  constructor(
+    private service: CompaniesService,
+    private tracking: TrackingGateway,
+  ) {}
 
   // ----- Admin plateforme -----
   @Get()
   @Roles(Role.SUPER_ADMIN)
-  findAll() {
-    return this.service.findAll();
+  findAll(@Query('status') status?: string) {
+    return this.service.findAll(['PENDING', 'APPROVED', 'REJECTED'].includes(status ?? '') ? status : undefined);
+  }
+
+  // ----- Inscription en ligne (landing page), validée par LETO -----
+  @Public()
+  @Post('apply')
+  async apply(@Body() dto: ApplyCompanyDto) {
+    const r = await this.service.apply(dto);
+    this.tracking.server?.to('super-admin').emit('companies:changed', { id: r.id });
+    return r;
+  }
+
+  @Post(':id/approve')
+  @Roles(Role.SUPER_ADMIN)
+  approve(@Param('id', ParseUUIDPipe) id: string) {
+    return this.service.review(id, true);
+  }
+
+  @Post(':id/reject')
+  @Roles(Role.SUPER_ADMIN)
+  reject(@Param('id', ParseUUIDPipe) id: string, @Body() dto: ReviewNoteDto) {
+    return this.service.review(id, false, dto.note);
   }
 
   @Post()

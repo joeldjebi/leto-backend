@@ -18,8 +18,53 @@ export class CompaniesService {
     private settings: SettingsService,
   ) {}
 
-  findAll() {
-    return this.companies.find({ where: { independent: false }, order: { createdAt: 'DESC' } });
+  findAll(status?: string) {
+    return this.companies.find({
+      where: { independent: false, ...(status ? { status: status as Company['status'] } : {}) },
+      order: { createdAt: 'DESC' },
+    });
+  }
+
+  /** Inscription en ligne d'une entreprise : compte du gérant créé, entreprise inactive jusqu'à validation */
+  async apply(dto: { name: string; phone: string; managerName: string; managerPhone: string; managerPassword: string; commune?: string; drivers?: number; vehicles?: string[]; message?: string }) {
+    await this.ensurePhoneFree(dto.managerPhone);
+    const company = await this.dataSource.transaction(async (m) => {
+      const c = await m.save(Company, {
+        name: dto.name.trim(),
+        phone: dto.phone,
+        active: false,
+        status: 'PENDING' as const,
+        vehicles: dto.vehicles?.length ? [...new Set(dto.vehicles)] : null,
+        application: {
+          commune: dto.commune?.trim() || undefined,
+          drivers: dto.drivers,
+          vehicles: dto.vehicles,
+          message: dto.message?.trim() || undefined,
+          managerName: dto.managerName.trim(),
+          managerPhone: dto.managerPhone,
+          appliedAt: new Date().toISOString(),
+        },
+      });
+      await m.save(User, {
+        name: dto.managerName.trim(),
+        phone: dto.managerPhone,
+        passwordHash: await bcrypt.hash(dto.managerPassword, 10),
+        role: Role.COMPANY,
+        companyId: c.id,
+      });
+      return c;
+    });
+    return { id: company.id, status: company.status };
+  }
+
+  /** Décision de LETO sur une demande d'inscription */
+  async review(id: string, approve: boolean, note?: string) {
+    const c = await this.companies.findOneBy({ id });
+    if (!c || c.independent) throw new BadRequestException('Entreprise introuvable');
+    if (c.status !== 'PENDING' && !(approve && c.status === 'REJECTED')) throw new BadRequestException('Demande déjà traitée');
+    if (!approve && !note?.trim()) throw new BadRequestException('Motif du refus obligatoire');
+    await this.companies.update(id, { status: approve ? 'APPROVED' : 'REJECTED', active: approve, reviewNote: approve ? null : note!.trim(), reviewedAt: new Date() });
+    return this.companies.findOneBy({ id });
   }
 
   /** Crée l'entreprise et le compte de son gérant dans une seule transaction */

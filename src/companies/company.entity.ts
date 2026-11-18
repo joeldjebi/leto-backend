@@ -40,6 +40,18 @@ export class Company {
   @Column({ type: 'jsonb', nullable: true })
   vehicles: string[] | null;
 
+  /** Inscription en ligne : PENDING (à valider par LETO), APPROVED, REJECTED. Créées par l'admin : APPROVED */
+  @Column({ type: 'varchar', length: 10, default: 'APPROVED' })
+  status: 'PENDING' | 'APPROVED' | 'REJECTED';
+
+  /** Demande d'inscription : commune, taille de flotte, message ; décision de LETO */
+  @Column({ type: 'jsonb', nullable: true })
+  application: { commune?: string; drivers?: number; vehicles?: string[]; message?: string; managerName?: string; managerPhone?: string; appliedAt?: string } | null;
+  @Column({ type: 'text', nullable: true })
+  reviewNote: string | null;
+  @Column({ type: 'timestamptz', nullable: true })
+  reviewedAt: Date | null;
+
   /** « Entreprise » individuelle d'un livreur indépendant (LI) : pas d'abonnement, commission LI */
   @Column({ default: false })
   independent: boolean;
