@@ -30,7 +30,7 @@ import { Role, User } from '../users/user.entity';
  *  - `user:<id>`          : chaque utilisateur (réponses aux propositions de prix)
  *
  * Événements émis par le serveur :
- *  - `driver:location`    { deliveryId?, driverId, lat, lng, at }
+ *  - `driver:location`    { deliveryId?, driverId, lat, lng, heading, speed, at }
  *  - `delivery:updated`   { id, status }   → l'app recharge la course via l'API REST
  *  - `deliveries:changed` {}               → les livreurs rechargent la liste des courses disponibles
  *  - `driver:offline`     { driverId }     → un livreur est passé hors ligne
@@ -114,9 +114,12 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
     return { ok: true };
   }
 
-  /** Le livreur envoie sa position GPS */
+  /** Dernière écriture en base par livreur (la diffusion, elle, est immédiate) */
+  private savedAt = new Map<string, number>();
+
+  /** Le livreur envoie sa position GPS (≈ 1 par seconde en mouvement), avec cap et vitesse si connus */
   @SubscribeMessage('driver:location')
-  async location(@ConnectedSocket() socket: Socket, @MessageBody() body: { lat: number; lng: number }) {
+  async location(@ConnectedSocket() socket: Socket, @MessageBody() body: { lat: number; lng: number; heading?: number; speed?: number }) {
     const user: AuthUser = socket.data.user;
     if (user?.role !== Role.DRIVER) return { ok: false };
     const lat = Number(body?.lat);
@@ -124,10 +127,19 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
     if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) {
       return { ok: false };
     }
+    const h = Number(body?.heading);
+    const v = Number(body?.speed);
+    const heading = body?.heading != null && Number.isFinite(h) && h >= 0 && h <= 360 ? Math.round(h) : null;
+    const speed = body?.speed != null && Number.isFinite(v) && v >= 0 && v < 70 ? Math.round(v * 10) / 10 : null;
     const at = new Date();
-    await this.users.update(user.sub, { lastLat: lat, lastLng: lng, lastLocationAt: at });
+    // Position persistée au plus toutes les 3 s : soulage la base sans retarder le direct
+    const last = this.savedAt.get(user.sub) ?? 0;
+    if (at.getTime() - last >= 3000) {
+      this.savedAt.set(user.sub, at.getTime());
+      await this.users.update(user.sub, { lastLat: lat, lastLng: lng, lastLocationAt: at });
+    }
 
-    const payload = { driverId: user.sub, lat, lng, at };
+    const payload = { driverId: user.sub, lat, lng, heading, speed, at };
     this.server.to(`company:${user.companyId}`).to('super-admin').emit('driver:location', payload);
 
     // Diffuse aux clients qui suivent les courses en cours de ce livreur
@@ -167,6 +179,7 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
   async offline(@ConnectedSocket() socket: Socket) {
     const user: AuthUser = socket.data.user;
     if (user?.role !== Role.DRIVER) return { ok: false };
+    this.savedAt.delete(user.sub);
     await this.users.update(user.sub, { lastLocationAt: null });
     this.server.to(`company:${user.companyId}`).to('super-admin').emit('driver:offline', { driverId: user.sub });
     return { ok: true };
