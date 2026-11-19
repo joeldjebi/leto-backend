@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Get, Patch, Post, Headers } from '@nestjs/common';
 import { AuthUser, CurrentUser, Public } from '../common/decorators';
 import { LoginDto, RegisterDto, UpdateProfileDto } from './auth.dto';
 import { AuthService } from './auth.service';
@@ -15,8 +15,8 @@ export class AuthController {
 
   @Public()
   @Post('login')
-  login(@Body() dto: LoginDto) {
-    return this.auth.login(dto);
+  login(@Body() dto: LoginDto, @Headers('origin') origin?: string) {
+    return this.auth.login(dto, origin);
   }
 
   @Get('me')

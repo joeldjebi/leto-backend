@@ -1,12 +1,5 @@
 import { normalizePhone } from '../countries/phone';
-import {
-  BadRequestException,
-  ConflictException,
-  Injectable,
-  Logger,
-  OnApplicationBootstrap,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, OnApplicationBootstrap, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
@@ -95,7 +88,24 @@ export class AuthService implements OnApplicationBootstrap {
     return this.session(user);
   }
 
-  async login(dto: LoginDto) {
+  /**
+   * Espaces web séparés (sécurité) : l'administration (sa.leto…) n'accepte que le Super Admin,
+   * l'espace entreprises (leto.performx.online/pro) n'accepte pas le Super Admin.
+   * Sans en-tête Origin (app mobile, scripts) ou en développement (localhost) : pas de restriction.
+   */
+  private checkSpace(role: Role, origin?: string) {
+    if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return;
+    const admin = (process.env.ADMIN_ORIGIN ?? 'https://sa.leto.performx.online').replace(/\/$/, '');
+    const site = (process.env.SITE_URL ?? 'https://leto.performx.online').replace(/\/$/, '');
+    if (origin === admin && role !== Role.SUPER_ADMIN) {
+      throw new ForbiddenException(`Cet espace est réservé à l’administration LETO. Entreprises de livraison : connectez-vous sur ${site.replace(/^https?:\/\//, '')}/pro`);
+    }
+    if (origin !== admin && role === Role.SUPER_ADMIN) {
+      throw new ForbiddenException('Le compte administrateur se connecte uniquement sur l’espace d’administration.');
+    }
+  }
+
+  async login(dto: LoginDto, origin?: string) {
     const user = await this.users
       .createQueryBuilder('u')
       .addSelect('u.passwordHash')
@@ -114,6 +124,7 @@ export class AuthService implements OnApplicationBootstrap {
     if (!user.active || (user.company && !user.company.active)) {
       throw new UnauthorizedException('Compte désactivé');
     }
+    this.checkSpace(user.role, origin);
     return this.session(user);
   }
 
