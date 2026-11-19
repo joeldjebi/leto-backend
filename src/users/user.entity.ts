@@ -55,6 +55,16 @@ export class User {
   @Column({ type: 'varchar', length: 10, default: 'MOTO' })
   vehicleType: string;
 
+  /** Immatriculation de l'engin (affichée au client pour reconnaître le livreur) */
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  plate: string | null;
+
+  /** Note moyenne donnée par les clients (1 à 5) et nombre de notes */
+  @Column({ type: 'double precision', nullable: true })
+  ratingAvg: number | null;
+  @Column({ type: 'int', default: 0 })
+  ratingCount: number;
+
   /** Dernière position GPS connue (livreurs) — mise à jour en temps réel */
   @Column({ type: 'double precision', nullable: true })
   lastLat: number | null;
@@ -65,4 +75,10 @@ export class User {
 
   @CreateDateColumn()
   createdAt: Date;
+}
+
+/** Immatriculation en majuscules, espaces superflus retirés (null si vide) */
+export function normalizePlate(v?: string | null): string | null {
+  const p = (v ?? '').trim().replace(/\s+/g, ' ').toUpperCase();
+  return p ? p.slice(0, 20) : null;
 }

@@ -6,7 +6,7 @@ import { DataSource, In, Repository } from 'typeorm';
 import { computePrice, DeliverySpeed, PricingGrid, VehicleType } from '../pricing/pricing';
 import { SettingsService } from '../settings/settings.service';
 import { PersonDto } from '../common/dto';
-import { Role, User } from '../users/user.entity';
+import { normalizePlate, Role, User } from '../users/user.entity';
 import { CreateCompanyDto } from './companies.dto';
 import { Company } from './company.entity';
 
@@ -180,7 +180,7 @@ export class CompaniesService {
     });
   }
 
-  async addDriver(companyId: string, dto: PersonDto & { vehicleType?: string }) {
+  async addDriver(companyId: string, dto: PersonDto & { vehicleType?: string; plate?: string }) {
     await this.ensurePhoneFree(dto.phone);
     const driver = await this.users.save({
       name: dto.name,
@@ -189,13 +189,17 @@ export class CompaniesService {
       role: Role.DRIVER,
       companyId,
       vehicleType: dto.vehicleType ?? 'MOTO',
+      plate: normalizePlate(dto.plate),
     });
     delete driver.passwordHash;
     return driver;
   }
 
-  async setDriverVehicle(companyId: string, driverId: string, vehicleType: string) {
-    const res = await this.users.update({ id: driverId, companyId, role: Role.DRIVER }, { vehicleType });
+  async setDriverVehicle(companyId: string, driverId: string, vehicleType: string, plate?: string) {
+    const res = await this.users.update(
+      { id: driverId, companyId, role: Role.DRIVER },
+      { vehicleType, ...(plate !== undefined ? { plate: normalizePlate(plate) } : {}) },
+    );
     if (!res.affected) throw new BadRequestException('Livreur introuvable dans votre entreprise');
     return this.users.findOneBy({ id: driverId });
   }

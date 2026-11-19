@@ -44,11 +44,14 @@ export class UpdateCompanyDto {
 /** Nouveau livreur : identité et engin */
 export class DriverDto extends PersonDto {
   @IsOptional() @IsIn(['MOTO', 'CAR', 'CARGO'], { message: 'Engin : moto, voiture ou cargo' }) vehicleType?: string;
+  @IsOptional() @IsString() @MaxLength(20, { message: 'Immatriculation : 20 caractères maximum' }) plate?: string;
 }
 
 /** Engin d'un livreur */
 export class DriverVehicleDto {
   @IsIn(['MOTO', 'CAR', 'CARGO'], { message: 'Engin : moto, voiture ou cargo' }) vehicleType: string;
+  /** Immatriculation ("" pour l'effacer) */
+  @IsOptional() @IsString() @MaxLength(20, { message: 'Immatriculation : 20 caractères maximum' }) plate?: string;
 }
 
 /** Engins dont dispose l'entreprise */

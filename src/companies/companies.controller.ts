@@ -113,7 +113,7 @@ export class CompaniesController {
   @Patch('me/drivers/:id/vehicle')
   @Roles(Role.COMPANY)
   setDriverVehicle(@CurrentUser() user: AuthUser, @Param('id') id: string, @Body() dto: DriverVehicleDto) {
-    return this.service.setDriverVehicle(user.companyId, id, dto.vehicleType);
+    return this.service.setDriverVehicle(user.companyId, id, dto.vehicleType, dto.plate);
   }
 
   @Patch('me/drivers/:id/active')

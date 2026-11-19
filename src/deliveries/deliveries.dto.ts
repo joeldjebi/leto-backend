@@ -8,6 +8,7 @@ import {
   IsUUID,
   IsBoolean,
   IsEnum,
+  IsIn,
   IsInt,
   IsLatitude,
   IsLongitude,
@@ -141,4 +142,13 @@ export class DisputeStopDto {
 /** L'entreprise fixe l'ordre de passage des arrêts encore à livrer */
 export class ReorderStopsDto {
   @IsArray() @ArrayMinSize(1) @IsUUID('all', { each: true }) stopIds: string[];
+}
+
+/** Compliments proposés au client après une livraison (bonne note) ou points à améliorer (note basse) */
+export const RATING_TAGS = ['FAST', 'POLITE', 'CAREFUL', 'COMMUNICATION', 'ABOVE', 'LATE', 'RUDE', 'DAMAGED', 'UNREACHABLE', 'ROUTE'] as const;
+
+export class RateDto {
+  @IsInt() @Min(1, { message: 'Note : 1 à 5 étoiles' }) @Max(5, { message: 'Note : 1 à 5 étoiles' }) stars: number;
+  @IsOptional() @IsArray() @ArrayMaxSize(10) @IsIn(RATING_TAGS as unknown as string[], { each: true }) tags?: string[];
+  @IsOptional() @IsString() @MaxLength(500) comment?: string;
 }

@@ -156,6 +156,16 @@ export class Delivery {
   @Column({ type: 'timestamptz', nullable: true })
   returnedAt: Date | null;
 
+  /** Note du client après la livraison : étoiles (1 à 5), compliments, commentaire */
+  @Column({ type: 'smallint', nullable: true })
+  rating: number | null;
+  @Column({ type: 'text', array: true, nullable: true })
+  ratingTags: string[] | null;
+  @Column({ type: 'text', nullable: true })
+  ratingComment: string | null;
+  @Column({ type: 'timestamptz', nullable: true })
+  ratedAt: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
   @UpdateDateColumn({ type: 'timestamptz' })

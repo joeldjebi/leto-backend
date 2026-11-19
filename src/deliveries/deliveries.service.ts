@@ -20,7 +20,7 @@ import { TrackingGateway } from '../tracking/tracking.gateway';
 import { Role, User } from '../users/user.entity';
 import { SettingsService } from '../settings/settings.service';
 import { FAIL_RADIUS_M, LOCATION_MAX_AGE_MS } from './absence';
-import { CompanyOrderDto, CreateDeliveryDto, FailStopDto } from './deliveries.dto';
+import { CompanyOrderDto, CreateDeliveryDto, FailStopDto, RateDto } from './deliveries.dto';
 import { DeliveryStop, DisputeDecision, FailureReason, StopStatus } from './delivery-stop.entity';
 import { Delivery, DeliveryStatus } from './delivery.entity';
 
@@ -342,6 +342,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
                 ? { lat: d.driver.lastLat, lng: d.driver.lastLng, at: d.driver.lastLocationAt, live: !!live }
                 : null,
             vehicle: d.driver.vehicleType ?? d.vehicleType,
+            plate: d.driver.plate,
+            rating: d.driver.ratingCount >= 3 ? d.driver.ratingAvg : null,
           }
         : null,
       etaMin: approach ? Math.max(1, approach.durationMin) : etaMin,
@@ -377,6 +379,24 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     const d = await this.findOne(id, true);
     if (d.clientId !== clientId) throw new NotFoundException('Course introuvable');
     return d;
+  }
+
+  /** Le client note le livreur (1 à 5 étoiles, compliments, commentaire) ; la moyenne du livreur est recalculée */
+  async rate(clientId: string, id: string, dto: RateDto) {
+    const d = await this.oneForClient(clientId, id);
+    if (d.status !== DeliveryStatus.DELIVERED || !d.driverId) throw new BadRequestException('Vous pourrez noter le livreur une fois la livraison terminée');
+    if (d.ratedAt) throw new BadRequestException('Vous avez déjà noté cette livraison');
+    const res = await this.repo.update(
+      { id, ratedAt: IsNull() },
+      { rating: dto.stars, ratingTags: dto.tags?.length ? [...new Set(dto.tags)] : null, ratingComment: dto.comment?.trim() || null, ratedAt: new Date() },
+    );
+    if (!res.affected) throw new BadRequestException('Vous avez déjà noté cette livraison');
+    const [{ avg, count }] = await this.repo.query(
+      `SELECT avg(rating)::float AS avg, count(*)::int AS count FROM deliveries WHERE "driverId" = $1 AND rating IS NOT NULL`,
+      [d.driverId],
+    );
+    await this.users.update(d.driverId, { ratingAvg: avg == null ? null : Math.round(avg * 100) / 100, ratingCount: count });
+    return this.oneForClient(clientId, id);
   }
 
   /** Frais de déplacement si la course est annulée maintenant (livreur en route), sinon 0 */

@@ -8,7 +8,7 @@ import { Company } from '../companies/company.entity';
 import { VehicleType } from '../pricing/pricing';
 import { Setting } from '../settings/setting.entity';
 import { TrackingGateway } from '../tracking/tracking.gateway';
-import { Role, User } from '../users/user.entity';
+import { normalizePlate, Role, User } from '../users/user.entity';
 import { DOC_FIELDS, IndependentEvent, IndependentProfile, IndependentStatus } from './independent-profile.entity';
 
 export type CommissionType = 'PERCENT' | 'FIXED';
@@ -213,6 +213,7 @@ export class IndependentsService implements OnModuleInit {
     if (p.vehiclePlate) p.vehiclePlate = p.vehiclePlate.toUpperCase();
     if (dto.consent) p.consentAt = new Date();
     await this.profiles.save(p);
+    if (dto.vehiclePlate !== undefined) await this.users.update(userId, { plate: normalizePlate(p.vehiclePlate) });
     if (dto.vehicleType) {
       await this.users.update(userId, { vehicleType: dto.vehicleType });
       await this.companies.update(p.companyId, { vehicles: [dto.vehicleType] });

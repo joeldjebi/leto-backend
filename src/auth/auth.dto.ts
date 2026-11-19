@@ -39,6 +39,12 @@ export class UpdateProfileDto {
   @Matches(/^\/uploads\/[0-9a-f-]{36}\.(jpg|png|webp|heic)$/, { message: 'Photo invalide' })
   avatarUrl?: string | null;
 
+  /** Immatriculation de l'engin (livreurs d'entreprise ; "" pour l'effacer) */
+  @IsOptional()
+  @IsString()
+  @MaxLength(20, { message: 'Immatriculation : 20 caractères maximum' })
+  plate?: string;
+
   @IsOptional()
   @IsString()
   currentPassword?: string;

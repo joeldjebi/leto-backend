@@ -4,7 +4,7 @@ import { Role } from '../users/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/user.entity';
-import { AdminCancelDto, AnswerCancelDto, AssignDto, CancelRequestDto, CancelStopDto, CompanyOrderDto, ConfirmStopDto, CreateDeliveryDto, DeclineAssignmentDto, DisputeStopDto, FailStopDto, ReorderStopsDto, ResolveDisputeDto, ReturnDto } from './deliveries.dto';
+import { AdminCancelDto, AnswerCancelDto, AssignDto, CancelRequestDto, CancelStopDto, CompanyOrderDto, ConfirmStopDto, CreateDeliveryDto, DeclineAssignmentDto, DisputeStopDto, FailStopDto, RateDto, ReorderStopsDto, ResolveDisputeDto, ReturnDto } from './deliveries.dto';
 import { DeliveriesService } from './deliveries.service';
 
 @Controller('deliveries')
@@ -41,6 +41,13 @@ export class DeliveriesController {
   @Roles(Role.CLIENT)
   cancelPreview(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.service.cancelPreview(user.sub, id);
+  }
+
+  /** Note du livreur après la livraison (une seule fois) */
+  @Post(':id/rate')
+  @Roles(Role.CLIENT)
+  rate(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: RateDto) {
+    return this.service.rate(user.sub, id, dto);
   }
 
   @Post(':id/cancel')

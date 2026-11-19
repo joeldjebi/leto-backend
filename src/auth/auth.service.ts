@@ -4,7 +4,7 @@ import { JwtService } from '@nestjs/jwt';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
 import { Repository } from 'typeorm';
-import { Role, User } from '../users/user.entity';
+import { normalizePlate, Role, User } from '../users/user.entity';
 import { LoginDto, RegisterDto, UpdateProfileDto } from './auth.dto';
 
 @Injectable()
@@ -139,6 +139,11 @@ export class AuthService implements OnApplicationBootstrap {
     const changes: Partial<User> = {};
     if (dto.name !== undefined) changes.name = dto.name.trim();
     if (dto.accountType !== undefined && user.role === Role.CLIENT) changes.accountType = dto.accountType;
+    if (dto.plate !== undefined && user.role === Role.DRIVER) {
+      const independent = user.companyId && (await this.users.manager.query(`SELECT 1 FROM companies WHERE id = $1 AND independent`, [user.companyId])).length;
+      if (independent) throw new BadRequestException('Votre immatriculation est celle de votre dossier : contactez LETO pour la modifier');
+      changes.plate = normalizePlate(dto.plate);
+    }
     if (dto.avatarUrl !== undefined) {
       // Livreur indépendant : sa photo de profil est le selfie de son dossier
       const independent = user.companyId && (await this.users.manager.query(`SELECT 1 FROM companies WHERE id = $1 AND independent`, [user.companyId])).length;
