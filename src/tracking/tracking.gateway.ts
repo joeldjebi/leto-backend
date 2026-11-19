@@ -39,6 +39,7 @@ import { Role, User } from '../users/user.entity';
  *  - `stop:arrived`       { deliveryId, stopId, recipientName } → livreur arrivé chez un destinataire
  *  - `stop:failed`        { deliveryId, stopId, recipientName } → échec signalé (expéditeur)
  *  - `dispute:new`        { deliveryId, stopId } → contestation (entreprise, SA)
+ *  - `client:location`    { deliveryId, lat, lng, at } | { deliveryId, stopped } → position partagée par le client (livreur)
  */
 @WebSocketGateway({ cors: { origin: '*' } })
 export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
@@ -174,6 +175,60 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
     }
   }
 
+  /** Position partagée par le client (option « Montrer au livreur où je me trouve »), par course, en mémoire */
+  private clientPos = new Map<string, { driverId: string; lat: number; lng: number; at: Date }>();
+  private static CLIENT_POS_TTL_MS = 2 * 60_000;
+
+  /** Course en cours du client connecté, sinon null */
+  private async clientActiveDelivery(socket: Socket, deliveryId: unknown) {
+    const user: AuthUser = socket.data.user;
+    if (user?.role !== Role.CLIENT || typeof deliveryId !== 'string' || !/^[0-9a-f-]{36}$/.test(deliveryId)) return null;
+    const d = await this.deliveries.findOne({ where: { id: deliveryId }, select: { id: true, clientId: true, driverId: true, status: true } }).catch(() => null);
+    if (!d || d.clientId !== user.sub || !d.driverId || ![DeliveryStatus.ACCEPTED, DeliveryStatus.PICKED_UP].includes(d.status)) return null;
+    return d;
+  }
+
+  /** Le client partage sa position : seul le livreur de la course la reçoit */
+  @SubscribeMessage('client:location')
+  async clientLocation(@ConnectedSocket() socket: Socket, @MessageBody() body: { deliveryId: string; lat: number; lng: number }) {
+    const lat = Number(body?.lat);
+    const lng = Number(body?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return { ok: false };
+    const d = await this.clientActiveDelivery(socket, body?.deliveryId);
+    if (!d) return { ok: false };
+    const pos = { driverId: d.driverId!, lat, lng, at: new Date() };
+    this.clientPos.set(d.id, pos);
+    this.emitToUser(d.driverId!, 'client:location', { deliveryId: d.id, lat, lng, at: pos.at });
+    return { ok: true };
+  }
+
+  /** Le client arrête le partage : le livreur retire sa position de la carte */
+  @SubscribeMessage('client:location:stop')
+  async clientLocationStop(@ConnectedSocket() socket: Socket, @MessageBody() body: { deliveryId: string }) {
+    const user: AuthUser = socket.data.user;
+    const pos = this.clientPos.get(body?.deliveryId);
+    if (!pos || user?.role !== Role.CLIENT) return { ok: false };
+    const d = await this.deliveries.findOne({ where: { id: body.deliveryId }, select: { id: true, clientId: true } }).catch(() => null);
+    if (d?.clientId !== user.sub) return { ok: false };
+    this.clientPos.delete(d.id);
+    this.emitToUser(pos.driverId, 'client:location', { deliveryId: d.id, stopped: true });
+    return { ok: true };
+  }
+
+  /** Le livreur (re)charge ses courses : positions client encore fraîches de ses courses en cours */
+  @SubscribeMessage('driver:client-locations')
+  driverClientLocations(@ConnectedSocket() socket: Socket) {
+    const user: AuthUser = socket.data.user;
+    if (user?.role !== Role.DRIVER) return [];
+    const now = Date.now();
+    const out: { deliveryId: string; lat: number; lng: number; at: Date }[] = [];
+    for (const [deliveryId, p] of this.clientPos) {
+      if (now - p.at.getTime() > TrackingGateway.CLIENT_POS_TTL_MS) this.clientPos.delete(deliveryId);
+      else if (p.driverId === user.sub) out.push({ deliveryId, lat: p.lat, lng: p.lng, at: p.at });
+    }
+    return out;
+  }
+
   /** Le livreur passe « hors ligne » : il n'apparaît plus sur les cartes ni dans les délais */
   @SubscribeMessage('driver:offline')
   async offline(@ConnectedSocket() socket: Socket) {
@@ -200,6 +255,12 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
   }
 
   deliveryChanged(d: { id: string; status: DeliveryStatus }) {
+    // Course terminée ou annulée : la position partagée par le client n'est plus transmise
+    const shared = this.clientPos.get(d.id);
+    if (shared && d.status !== DeliveryStatus.ACCEPTED && d.status !== DeliveryStatus.PICKED_UP) {
+      this.clientPos.delete(d.id);
+      this.emitToUser(shared.driverId, 'client:location', { deliveryId: d.id, stopped: true });
+    }
     this.server?.to(`delivery:${d.id}`).emit('delivery:updated', { id: d.id, status: d.status });
     this.server?.to('drivers').emit('deliveries:changed', {});
   }
