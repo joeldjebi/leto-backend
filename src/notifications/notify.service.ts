@@ -66,6 +66,7 @@ export const OFFICE_KINDS = {
   REMITTANCE: { label: 'Versements des livreurs', sound: 'CLIENT_UPDATE' },
   COMPANY_APPLY: { label: 'Demandes des entreprises', sound: 'ASSIGNED' },
   INDEPENDENT: { label: 'Dossiers des livreurs indépendants', sound: 'ASSIGNED' },
+  VIDEO_VISIT: { label: 'Visites de la vidéo de présentation', sound: 'CLIENT_UPDATE' },
 } as const satisfies Record<string, { label: string; sound: SoundEvent }>;
 export type OfficeKind = keyof typeof OFFICE_KINDS;
 

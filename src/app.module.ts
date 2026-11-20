@@ -19,6 +19,8 @@ import { NotificationsController } from './notifications/notifications.controlle
 import { NotifyService } from './notifications/notify.service';
 import { LandingController } from './landing/landing.controller';
 import { LandingService } from './landing/landing.service';
+import { VideoVisit } from './landing/video-visit.entity';
+import { VideoVisitsService } from './landing/video-visits.service';
 import { CancelReasonsController, CancelReasonsService } from './cancel-reasons/cancel-reasons';
 import { CountriesController, CountriesService } from './countries/countries';
 import { Country } from './countries/country.entity';
@@ -62,12 +64,12 @@ import { UsersController } from './users/users.controller';
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country],
+      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit],
       // Crée / met à jour les tables au démarrage (DB_SYNC=false pour désactiver).
       // À remplacer par des migrations TypeORM quand le schéma sera stabilisé.
       synchronize: process.env.DB_SYNC !== 'false',
     }),
-    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country]),
+    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
@@ -112,6 +114,7 @@ import { UsersController } from './users/users.controller';
     IndependentsService,
     NotifyService,
     LandingService,
+    VideoVisitsService,
     CancelReasonsService,
     CountriesService,
     TrackingGateway,
