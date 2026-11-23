@@ -63,6 +63,13 @@ export class Prospect {
 
   @Column({ type: 'text', nullable: true })
   notes: string | null;
+  /** Messages de premier contact (« {prenom} » remplacé par l'expéditeur) */
+  @Column({ type: 'text', nullable: true })
+  waMessage: string | null;
+  @Column({ type: 'varchar', length: 200, nullable: true })
+  emailSubject: string | null;
+  @Column({ type: 'text', nullable: true })
+  emailBody: string | null;
   @Column({ type: 'jsonb', default: () => "'[]'" })
   history: ProspectEvent[];
 

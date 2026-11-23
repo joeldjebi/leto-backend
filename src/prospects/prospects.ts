@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Injectable, NotFoundException, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Injectable, Logger, NotFoundException, OnApplicationBootstrap, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Type } from 'class-transformer';
 import { IsIn, IsInt, IsISO8601, IsOptional, IsString, Max, MaxLength, Min, ValidateIf } from 'class-validator';
@@ -6,6 +6,7 @@ import { Repository } from 'typeorm';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { Role, User } from '../users/user.entity';
 import { Prospect, PROSPECT_STATUSES, ProspectEvent, ProspectStatus } from './prospect.entity';
+import { messagesFor } from './messages';
 import { PROSPECT_SEED } from './seed';
 
 const STATUS_LABEL: Record<ProspectStatus, string> = {
@@ -31,6 +32,9 @@ export class ProspectDto {
   @IsOptional() @ValidateIf((o) => o.nextActionAt !== null) @IsISO8601() nextActionAt?: string | null;
   @IsOptional() @ValidateIf((o) => o.nextAction !== null) @IsString() @MaxLength(200) nextAction?: string | null;
   @IsOptional() @ValidateIf((o) => o.notes !== null) @IsString() @MaxLength(5000) notes?: string | null;
+  @IsOptional() @ValidateIf((o) => o.waMessage !== null) @IsString() @MaxLength(3000) waMessage?: string | null;
+  @IsOptional() @ValidateIf((o) => o.emailSubject !== null) @IsString() @MaxLength(200) emailSubject?: string | null;
+  @IsOptional() @ValidateIf((o) => o.emailBody !== null) @IsString() @MaxLength(5000) emailBody?: string | null;
 }
 
 /** Une entrée d'historique : prise de contact (met à jour « dernier contact ») ou simple note */
@@ -40,8 +44,20 @@ export class ProspectLogDto {
 }
 
 @Injectable()
-export class ProspectsService {
+export class ProspectsService implements OnApplicationBootstrap {
+  private readonly logger = new Logger('Prospects');
   constructor(@InjectRepository(Prospect) private repo: Repository<Prospect>) {}
+
+  /** Au démarrage : messages personnalisés pour les entreprises de la liste de départ qui n'en ont pas encore */
+  async onApplicationBootstrap() {
+    try {
+      const todo = (await this.repo.find({ select: { id: true, name: true, waMessage: true } })).filter((p) => !p.waMessage && messagesFor(p.name));
+      for (const p of todo) await this.repo.update(p.id, messagesFor(p.name)!);
+      if (todo.length) this.logger.log(`Messages personnalisés ajoutés à ${todo.length} prospect(s)`);
+    } catch (e) {
+      this.logger.warn(`Messages personnalisés non ajoutés : ${(e as Error).message}`);
+    }
+  }
 
   list() {
     return this.repo.find({ order: { priority: 'ASC', name: 'ASC' } });
@@ -104,7 +120,7 @@ export class ProspectsService {
     const missing = PROSPECT_SEED.filter((p) => !existing.has(p.name.toLowerCase()));
     if (missing.length) {
       await this.repo.save(
-        missing.map((p) => this.repo.create({ ...p, history: [{ at: new Date().toISOString(), kind: 'NOTE', text: 'Importé de la liste de départ', by }] })),
+        missing.map((p) => this.repo.create({ ...p, ...(messagesFor(p.name) ?? {}), history: [{ at: new Date().toISOString(), kind: 'NOTE', text: 'Importé de la liste de départ', by }] })),
       );
     }
     return { added: missing.length };
