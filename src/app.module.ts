@@ -20,6 +20,8 @@ import { NotifyService } from './notifications/notify.service';
 import { LandingController } from './landing/landing.controller';
 import { LandingService } from './landing/landing.service';
 import { VideoVisit } from './landing/video-visit.entity';
+import { Prospect } from './prospects/prospect.entity';
+import { ProspectsController, ProspectsService } from './prospects/prospects';
 import { VideoVisitsService } from './landing/video-visits.service';
 import { CancelReasonsController, CancelReasonsService } from './cancel-reasons/cancel-reasons';
 import { CountriesController, CountriesService } from './countries/countries';
@@ -64,12 +66,12 @@ import { UsersController } from './users/users.controller';
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit],
+      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect],
       // Crée / met à jour les tables au démarrage (DB_SYNC=false pour désactiver).
       // À remplacer par des migrations TypeORM quand le schéma sera stabilisé.
       synchronize: process.env.DB_SYNC !== 'false',
     }),
-    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit]),
+    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
@@ -95,6 +97,7 @@ import { UsersController } from './users/users.controller';
     LandingController,
     CancelReasonsController,
     CountriesController,
+    ProspectsController,
     UploadsController,
     UsersController,
   ],
@@ -117,6 +120,7 @@ import { UsersController } from './users/users.controller';
     VideoVisitsService,
     CancelReasonsService,
     CountriesService,
+    ProspectsService,
     TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],
