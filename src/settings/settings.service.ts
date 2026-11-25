@@ -33,6 +33,13 @@ export class SettingsService implements OnModuleInit {
         // v4 : textes des délais mis à jour s'ils n'avaient pas été personnalisés
         if (this.grid.speeds.EXPRESS.description === SPEED_TEXT.OLD_EXPRESS) this.grid.speeds.EXPRESS.description = SPEED_TEXT.EXPRESS;
         if (this.grid.speeds.STANDARD.description === SPEED_TEXT.OLD_STANDARD) this.grid.speeds.STANDARD.description = SPEED_TEXT.STANDARD;
+        // v5 : prix moto alignés sur le marché (minimum 450 F pour 2 km, puis 150 F/km ; Express × 1,1),
+        // seulement si la grille avait encore les anciennes valeurs par défaut
+        if ((stored.rev ?? 1) < 5) {
+          const moto = this.grid.vehicles.MOTO;
+          if (moto.base === 500 && moto.perKm === 100 && moto.min === 1000) Object.assign(moto, { base: 150, perKm: 150, min: 450 });
+          if (this.grid.speeds.EXPRESS.factor === 1.2) this.grid.speeds.EXPRESS.factor = 1.1;
+        }
         this.grid.rev = PRICING_REV;
         const saved = await this.repo.save({ key: KEY, value: this.grid, updatedBy: `Mise à jour des règles (v${PRICING_REV})` });
         this.meta = { updatedAt: saved.updatedAt, updatedBy: saved.updatedBy };

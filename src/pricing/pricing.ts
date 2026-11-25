@@ -113,7 +113,7 @@ export interface SurchargeRules {
 }
 
 /** Version courante des règles par défaut */
-export const PRICING_REV = 4;
+export const PRICING_REV = 5;
 
 /** Textes des délais (v4 : règles de courses simultanées selon le délai) */
 export const SPEED_TEXT = {
@@ -148,14 +148,14 @@ export const defaultGrid = (): PricingGrid => ({
   vehicles: {
     // Moto : très compétitif, plafonné dans le Grand Abidjan (Express 2 500 F · Standard 2 200 F · Dans 2 h 2 000 F)
     MOTO: {
-      label: 'Livraison à moto', description: 'Petits colis, documents', base: 500, perKm: 100, min: 1000, enabled: true,
+      label: 'Livraison à moto', description: 'Petits colis, documents', base: 150, perKm: 150, min: 450, enabled: true,
       maxAbidjan: { EXPRESS: 2500, STANDARD: 2200, SCHEDULED: 2000 },
     },
     CAR: { label: 'Voiture', description: 'Colis moyens ou fragiles', base: 1000, perKm: 175, min: 2000, enabled: true, maxAbidjan: noCap() },
     CARGO: { label: 'Cargo', description: 'Gros volumes', base: 3000, perKm: 300, min: 5000, enabled: true, maxAbidjan: noCap() },
   },
   speeds: {
-    EXPRESS: { label: 'Express', description: SPEED_TEXT.EXPRESS, factor: 1.2 },
+    EXPRESS: { label: 'Express', description: SPEED_TEXT.EXPRESS, factor: 1.1 },
     STANDARD: { label: 'Standard', description: SPEED_TEXT.STANDARD, factor: 1 },
     SCHEDULED: { label: 'Dans 2 heures', description: 'Le moins cher', factor: 0.85 },
   },
