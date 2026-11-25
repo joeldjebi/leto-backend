@@ -13,4 +13,9 @@ async function bootstrap() {
   await app.listen(port);
   console.log(`LETO API démarrée sur http://localhost:${port}`);
 }
-bootstrap();
+// Démarrage impossible (port déjà pris, base injoignable) : le processus s'arrête, pm2 le signale et le relance
+// (sinon il reste « online » sans répondre à personne)
+bootstrap().catch((e) => {
+  console.error('Démarrage de l’API impossible :', e);
+  process.exit(1);
+});
