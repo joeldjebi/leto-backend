@@ -17,7 +17,7 @@ const ONLINE_MS = 10 * 60_000;
 
 type Rules = Pick<
   PricingGrid,
-  'dispatchRadiusKm' | 'busyRadiusKm' | 'routeCorridorM' | 'maxActiveCourses' | 'orderPopupSec' | 'dispatchWaveSize' | 'dispatchWaveSec'
+  'dispatchRadiusKm' | 'busyRadiusKm' | 'routeCorridorM' | 'maxActiveCourses' | 'standardMaxActiveCourses' | 'standardMaxDetourMin' | 'orderPopupSec' | 'dispatchWaveSize' | 'dispatchWaveSec'
 >;
 
 interface Candidate {
@@ -161,7 +161,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
       const courses = busy.get(r.id) ?? [];
       let match: Match | null = null;
       if (courses.length) {
-        match = matchBusyDriver(me, courses, pickup, rules, await this.roadPath(me, courses, r.routePlan));
+        match = matchBusyDriver(me, courses, pickup, rules, await this.roadPath(me, courses, r.routePlan), d.speed);
         if (!match) continue;
       }
       out.push({ id: r.id, companyId: r.companyId, me, km: Math.round(distanceM(me, pickup) / 100) / 10, courses, match });
@@ -184,9 +184,9 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Correspondance (trajet / proximité) pour la liste d'un livreur occupé */
-  async matchFor(driverId: string, me: LatLng, courses: ActiveCourse[], pickup: LatLng) {
+  async matchFor(driverId: string, me: LatLng, courses: ActiveCourse[], pickup: LatLng, speed?: string) {
     const [row] = await this.db.query(`SELECT "routePlan" FROM users WHERE id = $1`, [driverId]);
-    return matchBusyDriver(me, courses, pickup, this.settings.pricing, await this.roadPath(me, courses, row?.routePlan ?? null));
+    return matchBusyDriver(me, courses, pickup, this.settings.pricing, await this.roadPath(me, courses, row?.routePlan ?? null), speed);
   }
 
   // ---------- Réponses des livreurs ----------

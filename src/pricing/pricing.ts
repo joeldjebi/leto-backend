@@ -70,8 +70,12 @@ export interface PricingGrid {
   busyRadiusKm: number;
   /** … ou à moins de cette distance (m) de son trajet restant */
   routeCorridorM: number;
-  /** Nombre maximum de courses en cours en même temps par livreur */
+  /** Nombre maximum de courses en cours en même temps par livreur (livraisons « Dans 2 heures ») */
   maxActiveCourses: number;
+  /** Livreur avec une livraison Standard : courses en même temps au maximum (Express : toujours seule) */
+  standardMaxActiveCourses: number;
+  /** … et retard maximum (min) qu'une course ajoutée peut causer à sa livraison Standard */
+  standardMaxDetourMin: number;
   /** Durée d'affichage de l'alerte « nouvelle commande » chez le livreur (secondes) */
   orderPopupSec: number;
   /** Envoi par vagues : nombre de livreurs prévenus à chaque vague (les plus proches d'abord) */
@@ -109,7 +113,15 @@ export interface SurchargeRules {
 }
 
 /** Version courante des règles par défaut */
-export const PRICING_REV = 3;
+export const PRICING_REV = 4;
+
+/** Textes des délais (v4 : règles de courses simultanées selon le délai) */
+export const SPEED_TEXT = {
+  EXPRESS: 'Livreur dédié : il ne fait que votre course',
+  STANDARD: 'Le livreur peut prendre un autre colis sur sa route, sans retarder le vôtre',
+  OLD_EXPRESS: 'Livreur dédié, départ immédiat',
+  OLD_STANDARD: 'Le livreur peut livrer un autre colis sur la route',
+};
 
 export const defaultSurcharges = (): SurchargeRules => ({
   rushEnabled: true,
@@ -143,8 +155,8 @@ export const defaultGrid = (): PricingGrid => ({
     CARGO: { label: 'Cargo', description: 'Gros volumes', base: 3000, perKm: 300, min: 5000, enabled: true, maxAbidjan: noCap() },
   },
   speeds: {
-    EXPRESS: { label: 'Express', description: 'Livreur dédié, départ immédiat', factor: 1.2 },
-    STANDARD: { label: 'Standard', description: 'Le livreur peut livrer un autre colis sur la route', factor: 1 },
+    EXPRESS: { label: 'Express', description: SPEED_TEXT.EXPRESS, factor: 1.2 },
+    STANDARD: { label: 'Standard', description: SPEED_TEXT.STANDARD, factor: 1 },
     SCHEDULED: { label: 'Dans 2 heures', description: 'Le moins cher', factor: 0.85 },
   },
   codEnabled: false,
@@ -166,6 +178,8 @@ export const defaultGrid = (): PricingGrid => ({
   busyRadiusKm: 2,
   routeCorridorM: 500,
   maxActiveCourses: 3,
+  standardMaxActiveCourses: 2,
+  standardMaxDetourMin: 10,
   orderPopupSec: 30,
   dispatchWaveSize: 3,
   dispatchWaveSec: 15,

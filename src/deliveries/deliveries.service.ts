@@ -667,7 +667,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
       if (me?.lastLat == null || me.lastLng == null) continue;
-      const match = await this.dispatch.matchFor(user.sub, { lat: me.lastLat, lng: me.lastLng }, courses, { lat: d.pickupLat, lng: d.pickupLng });
+      const match = await this.dispatch.matchFor(user.sub, { lat: me.lastLat, lng: me.lastLng }, courses, { lat: d.pickupLat, lng: d.pickupLng }, d.speed);
       if (match) out.push(Object.assign(d, { match }));
     }
     return out;
@@ -686,7 +686,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       const d = await m.findOneBy(Delivery, { id });
       if (!d || d.status !== DeliveryStatus.PENDING) throw new ConflictException('Course déjà prise ou indisponible');
       // Course affectée par son entreprise : acceptée même au-delà du maximum
-      if (d.assignedDriverId !== user.sub) await assertCanTakeMore(m, user.sub, this.settings.pricing.maxActiveCourses);
+      if (d.assignedDriverId !== user.sub) await assertCanTakeMore(m, user.sub, this.settings.pricing, d.speed);
       if (d.targetCompanyId && d.targetCompanyId !== user.companyId) throw new ForbiddenException('Course réservée à une autre entreprise');
       if (d.assignedDriverId && d.assignedDriverId !== user.sub) throw new ForbiddenException('Course affectée à un autre livreur');
       const independent = await this.independents.isIndependent(user.companyId);

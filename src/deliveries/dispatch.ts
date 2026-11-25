@@ -11,6 +11,8 @@ export type LatLng = { lat: number; lng: number };
 export interface ActiveCourse {
   id?: string;
   status: string;
+  /** Délai payé par le client : EXPRESS, STANDARD ou SCHEDULED (« Dans 2 heures ») */
+  speed?: string;
   pickupLat: number;
   pickupLng: number;
   returnRequired?: boolean;
@@ -22,6 +24,55 @@ export interface DispatchRules {
   busyRadiusKm: number;
   routeCorridorM: number;
   maxActiveCourses: number;
+  standardMaxActiveCourses: number;
+  standardMaxDetourMin: number;
+}
+
+/**
+ * Courses simultanées selon le délai payé :
+ *  - Express : course exclusive (jamais avec une autre, dans un sens comme dans l'autre) ;
+ *  - Standard : au plus `standardMaxActiveCourses`, seulement sur le trajet, sans retarder la livraison
+ *    de plus de `standardMaxDetourMin` ;
+ *  - Dans 2 heures : jusqu'à `maxActiveCourses`, sur le trajet ou près du livreur.
+ */
+export function speedLimit(courses: { speed?: string }[], newSpeed: string | undefined, rules: DispatchRules): { max: number; nearby: boolean; detourMin: number | null } {
+  const speeds = [...courses.map((c) => c.speed ?? 'STANDARD'), newSpeed ?? 'STANDARD'];
+  if (courses.length && speeds.includes('EXPRESS')) return { max: 0, nearby: false, detourMin: null };
+  const standard = speeds.includes('STANDARD');
+  return {
+    max: standard ? Math.min(rules.maxActiveCourses, rules.standardMaxActiveCourses) : rules.maxActiveCourses,
+    nearby: !standard,
+    // Le retard compte pour les livraisons Standard déjà en cours
+    detourMin: courses.some((c) => (c.speed ?? 'STANDARD') === 'STANDARD') ? rules.standardMaxDetourMin : null,
+  };
+}
+
+/** Vitesse moyenne en ville (km/h), facteur route / vol d'oiseau, et temps passé au départ (min) */
+const CITY_KMH = 20;
+const ROAD_FACTOR = 1.35;
+const PICKUP_STOP_MIN = 3;
+
+/**
+ * Retard (min) causé aux livraisons Standard en cours si le livreur passe d'abord récupérer ce colis :
+ * meilleur détour pour insérer le départ avant la dernière livraison Standard (le nouveau colis est livré après).
+ */
+export function standardDelayMin(me: LatLng, courses: ActiveCourse[], pickup: LatLng): number {
+  const path = remainingPath(me, courses);
+  // Dernière étape d'une livraison Standard sur le trajet restant
+  let last = 0;
+  let i = 1;
+  for (const c of courses) {
+    const steps = (c.status === 'ACCEPTED' ? 1 : 0) + c.stops.filter((s) => s.status === 'PENDING').length + (c.status === 'PICKED_UP' && c.returnRequired && !c.returnedAt ? 1 : 0);
+    i += steps;
+    if ((c.speed ?? 'STANDARD') === 'STANDARD' && steps) last = i - 1;
+  }
+  if (last === 0) return 0;
+  let best = Infinity;
+  for (let k = 0; k < last; k++) {
+    const extra = distanceM(path[k], pickup) + distanceM(pickup, path[k + 1]) - distanceM(path[k], path[k + 1]);
+    best = Math.min(best, extra);
+  }
+  return Math.round(((best / 1000) * ROAD_FACTOR * 60) / CITY_KMH + PICKUP_STOP_MIN);
 }
 
 /** Pourquoi la commande est proposée à ce livreur occupé */
@@ -68,8 +119,17 @@ export function remainingPath(me: LatLng, courses: ActiveCourse[]): LatLng[] {
  * Oui si le départ est à moins de `routeCorridorM` de son trajet restant, ou à moins de `busyRadiusKm` de lui.
  * `road` : tracé routier du trajet restant (sinon lignes droites entre les étapes).
  */
-export function matchBusyDriver(me: LatLng, courses: ActiveCourse[], pickup: LatLng, rules: DispatchRules, road?: LatLng[] | null): Match | null {
-  if (courses.length >= rules.maxActiveCourses) return null;
+export function matchBusyDriver(
+  me: LatLng,
+  courses: ActiveCourse[],
+  pickup: LatLng,
+  rules: DispatchRules,
+  road?: LatLng[] | null,
+  newSpeed?: string,
+): Match | null {
+  const limit = speedLimit(courses, newSpeed, rules);
+  if (courses.length >= limit.max) return null;
+  if (limit.detourMin != null && standardDelayMin(me, courses, pickup) > limit.detourMin) return null;
   const km = Math.round(distanceM(me, pickup) / 100) / 10;
   const path = road && road.length >= 2 ? road : remainingPath(me, courses);
   if (rules.routeCorridorM > 0) {
@@ -77,7 +137,7 @@ export function matchBusyDriver(me: LatLng, courses: ActiveCourse[], pickup: Lat
       if (distanceToSegmentM(pickup, path[i], path[i + 1]) <= rules.routeCorridorM) return { kind: 'ROUTE', km };
     }
   }
-  if (km <= rules.busyRadiusKm) return { kind: 'NEARBY', km };
+  if (limit.nearby && km <= rules.busyRadiusKm) return { kind: 'NEARBY', km };
   return null;
 }
 
@@ -88,7 +148,7 @@ export async function activeCourses(db: Db, driverIds: string[]): Promise<Map<st
   const out = new Map<string, ActiveCourse[]>();
   if (!driverIds.length) return out;
   const rows: any[] = await db.query(
-    `SELECT d.id, d."driverId", d.status, d."pickupLat", d."pickupLng", d."returnRequired", d."returnedAt",
+    `SELECT d.id, d."driverId", d.status, d.speed, d."pickupLat", d."pickupLng", d."returnRequired", d."returnedAt",
             COALESCE(json_agg(json_build_object('id', s.id, 'lat', s.lat, 'lng', s.lng, 'status', s.status, 'position', s.position))
                      FILTER (WHERE s.id IS NOT NULL), '[]') AS stops
        FROM deliveries d
@@ -103,6 +163,7 @@ export async function activeCourses(db: Db, driverIds: string[]): Promise<Map<st
     list.push({
       id: r.id,
       status: r.status,
+      speed: r.speed,
       pickupLat: Number(r.pickupLat),
       pickupLng: Number(r.pickupLng),
       returnRequired: r.returnRequired,
@@ -114,15 +175,27 @@ export async function activeCourses(db: Db, driverIds: string[]): Promise<Map<st
   return out;
 }
 
-/** Refuse une nouvelle course si le livreur a déjà le nombre maximum de courses en cours */
-export async function assertCanTakeMore(db: Db, driverId: string, max: number) {
-  const [{ n }] = await db.query(
-    `SELECT COUNT(*)::int AS n FROM deliveries WHERE "driverId" = $1 AND status IN ('ACCEPTED', 'PICKED_UP')`,
+/**
+ * Refuse une nouvelle course si le livreur ne peut pas la prendre en plus des siennes :
+ * Express seule, Standard limitée, « Dans 2 heures » jusqu'au maximum général.
+ */
+export async function assertCanTakeMore(db: Db, driverId: string, rules: DispatchRules, newSpeed?: string) {
+  const rows: { speed: string }[] = await db.query(
+    `SELECT speed FROM deliveries WHERE "driverId" = $1 AND status IN ('ACCEPTED', 'PICKED_UP')`,
     [driverId],
   );
+  const n = rows.length;
+  if (!n) return;
+  if (rows.some((r) => r.speed === 'EXPRESS')) {
+    throw new ConflictException('Vous avez une livraison Express en cours : terminez-la avant d’accepter une autre course');
+  }
+  if (newSpeed === 'EXPRESS') {
+    throw new ConflictException('Une livraison Express se fait seule : terminez vos courses en cours avant de l’accepter');
+  }
+  const { max } = speedLimit(rows, newSpeed, rules);
   if (n >= max) {
     throw new ConflictException(
-      `Vous avez déjà ${n} course${n > 1 ? 's' : ''} en cours (maximum ${max}) : terminez-en une avant d’en accepter une autre`,
+      `Vous avez déjà ${n} course${n > 1 ? 's' : ''} en cours (maximum ${max}${max < rules.maxActiveCourses ? ' avec une livraison Standard' : ''}) : terminez-en une avant d’en accepter une autre`,
     );
   }
 }

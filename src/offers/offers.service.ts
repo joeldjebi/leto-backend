@@ -53,7 +53,7 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
     if (price > d.price * MAX_OFFER_FACTOR) {
       throw new BadRequestException(`Proposition trop élevée (maximum ${money(d.price * MAX_OFFER_FACTOR)})`);
     }
-    await assertCanTakeMore(this.dataSource, user.sub, this.settings.pricing.maxActiveCourses);
+    await assertCanTakeMore(this.dataSource, user.sub, this.settings.pricing, d.speed);
     // L'entreprise doit pouvoir payer la commission à ce prix (vérifié à nouveau quand le client accepte)
     await this.billing.check(user.companyId, price);
     // Une seule proposition active par livreur et par course : la nouvelle remplace l'ancienne
@@ -125,7 +125,7 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
     }
     const others = await this.dataSource.transaction(async (m) => {
       // Le livreur a pu accepter d'autres courses entre-temps
-      await assertCanTakeMore(m, offer.driverId, this.settings.pricing.maxActiveCourses).catch(() => {
+      await assertCanTakeMore(m, offer.driverId, this.settings.pricing, offer.delivery?.speed).catch(() => {
         throw new BadRequestException('Ce livreur a désormais trop de courses en cours : choisissez une autre proposition');
       });
       const commission = await this.billing.reserve(m, offer.companyId, offer.price).catch(() => {

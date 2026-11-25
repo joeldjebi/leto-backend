@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { defaultGrid, DeliverySpeed, MAX_STOPS, PRICING_REV, PricingGrid, VehicleType } from '../pricing/pricing';
+import { defaultGrid, DeliverySpeed, MAX_STOPS, PRICING_REV, PricingGrid, SPEED_TEXT, VehicleType } from '../pricing/pricing';
 import { Setting } from './setting.entity';
 
 const KEY = 'pricing';
@@ -30,6 +30,9 @@ export class SettingsService implements OnModuleInit {
             this.grid.vehicles[v].maxAbidjan = d.vehicles[v].maxAbidjan;
           }
         }
+        // v4 : textes des délais mis à jour s'ils n'avaient pas été personnalisés
+        if (this.grid.speeds.EXPRESS.description === SPEED_TEXT.OLD_EXPRESS) this.grid.speeds.EXPRESS.description = SPEED_TEXT.EXPRESS;
+        if (this.grid.speeds.STANDARD.description === SPEED_TEXT.OLD_STANDARD) this.grid.speeds.STANDARD.description = SPEED_TEXT.STANDARD;
         this.grid.rev = PRICING_REV;
         const saved = await this.repo.save({ key: KEY, value: this.grid, updatedBy: `Mise à jour des règles (v${PRICING_REV})` });
         this.meta = { updatedAt: saved.updatedAt, updatedBy: saved.updatedBy };
@@ -148,7 +151,7 @@ export class SettingsService implements OnModuleInit {
       if (Array.isArray(sc.rushRanges)) out.surcharges.rushRanges = sc.rushRanges.map((x) => String(x).trim()).filter(Boolean);
       if (Array.isArray(sc.floodCommunes)) out.surcharges.floodCommunes = sc.floodCommunes.map((x) => String(x).trim()).filter(Boolean);
     }
-    for (const k of ['codFee', 'extraStopFee', 'maxStops', 'absenceWaitMin', 'cancelFeeValue', 'cancelFreeMinutes', 'cancelRequestAutoMin', 'orderExpiryMin', 'dispatchRadiusKm', 'busyRadiusKm', 'routeCorridorM', 'maxActiveCourses', 'orderPopupSec', 'dispatchWaveSize', 'dispatchWaveSec'] as const) {
+    for (const k of ['codFee', 'extraStopFee', 'maxStops', 'absenceWaitMin', 'cancelFeeValue', 'cancelFreeMinutes', 'cancelRequestAutoMin', 'orderExpiryMin', 'dispatchRadiusKm', 'busyRadiusKm', 'routeCorridorM', 'maxActiveCourses', 'standardMaxActiveCourses', 'standardMaxDetourMin', 'orderPopupSec', 'dispatchWaveSize', 'dispatchWaveSec'] as const) {
       if (input[k] !== undefined) out[k] = input[k] as number;
     }
     return out;
@@ -193,6 +196,9 @@ export class SettingsService implements OnModuleInit {
     num(g.routeCorridorM, 'Livreur en course : distance au trajet (m)', 0, 5000);
     num(g.maxActiveCourses, 'Courses en même temps par livreur', 1, 10);
     if (!Number.isInteger(g.maxActiveCourses)) throw new BadRequestException('Courses en même temps : nombre entier attendu');
+    num(g.standardMaxActiveCourses, 'Standard : courses en même temps', 1, 10);
+    if (!Number.isInteger(g.standardMaxActiveCourses)) throw new BadRequestException('Standard : courses en même temps, nombre entier attendu');
+    num(g.standardMaxDetourMin, 'Standard : retard maximum (min)', 0, 60);
     num(g.orderPopupSec, 'Durée de l’alerte nouvelle commande (s)', 10, 120);
     num(g.dispatchWaveSize, 'Livreurs prévenus par vague', 1, 50);
     num(g.dispatchWaveSec, 'Délai entre deux vagues (s)', 5, 120);
