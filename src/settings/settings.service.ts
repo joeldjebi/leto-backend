@@ -35,9 +35,11 @@ export class SettingsService implements OnModuleInit {
         if (this.grid.speeds.STANDARD.description === SPEED_TEXT.OLD_STANDARD) this.grid.speeds.STANDARD.description = SPEED_TEXT.STANDARD;
         // v5 : prix moto alignés sur le marché (minimum 450 F pour 2 km, puis 150 F/km ; Express × 1,1),
         // seulement si la grille avait encore les anciennes valeurs par défaut
-        if ((stored.rev ?? 1) < 5) {
+        // v6 : calé sur deux relevés Yango (1,5 km → 600 F ; 10,8 km → 1 400 F) : 300 F + 85 F/km, minimum 450 F
+        if ((stored.rev ?? 1) < 6) {
           const moto = this.grid.vehicles.MOTO;
-          if (moto.base === 500 && moto.perKm === 100 && moto.min === 1000) Object.assign(moto, { base: 150, perKm: 150, min: 450 });
+          const old = (b: number, k: number, m: number) => moto.base === b && moto.perKm === k && moto.min === m;
+          if (old(500, 100, 1000) || old(150, 150, 450)) Object.assign(moto, { base: 300, perKm: 85, min: 450 });
           if (this.grid.speeds.EXPRESS.factor === 1.2) this.grid.speeds.EXPRESS.factor = 1.1;
         }
         this.grid.rev = PRICING_REV;
