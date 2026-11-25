@@ -5,6 +5,7 @@ import { randomUUID } from 'crypto';
 import { DataSource, Repository } from 'typeorm';
 import { Setting } from '../settings/setting.entity';
 import { StorageService } from '../storage/storage.service';
+import { activeCourses, DispatchRules, distanceM, matchBusyDriver } from '../deliveries/dispatch';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 
 /** Événements qui déclenchent une notification (et un son LETO) dans l'app */
@@ -48,8 +49,6 @@ interface SoundsConfig {
 const KEY = 'sounds';
 /** Livreurs considérés en ligne (dernière position GPS) */
 const ONLINE_MS = 10 * 60_000;
-/** Rayon des livreurs prévenus d'une nouvelle course */
-const RADIUS_KM = 10;
 
 /** Notifications du back-office : catégorie (filtrable par l'utilisateur) et son joué */
 export const OFFICE_KINDS = {
@@ -74,6 +73,8 @@ export interface NotifyPayload {
   title: string;
   body: string;
   deliveryId?: string;
+  /** Données en plus (résumé de la course pour l'alerte du livreur…) */
+  [extra: string]: unknown;
 }
 
 /**
@@ -182,13 +183,25 @@ export class NotifyService implements OnModuleInit {
    * Nouvelle course : livreurs en ligne autour du point de départ, selon le choix du client
    * (une entreprise, les livreurs indépendants, ou toutes les entreprises).
    */
+  /**
+   * Nouvelle commande : prévient les livreurs en ligne autour du départ.
+   * Livreur libre : dans `dispatchRadiusKm`. Livreur déjà en course (sous le maximum de courses) :
+   * seulement si le départ est sur son trajet restant ou près de lui. Chaque livreur reçoit
+   * le résumé de la course pour l'alerte plein écran de l'app.
+   */
   async newOrder(
-    d: { id: string; pickupLat: number; pickupLng: number; pickupCommune?: string | null; price: number; targetCompanyId: string | null; forIndependents: boolean },
+    d: {
+      id: string; pickupLat: number; pickupLng: number; pickupCommune?: string | null; pickupAddress?: string | null;
+      price: number; currency?: string | null; targetCompanyId: string | null; forIndependents: boolean;
+      distanceKm?: number | null; durationMin?: number | null; vehicleType?: string; speed?: string;
+      stops?: { commune?: string | null; address?: string | null; codAmount?: number | null }[];
+    },
     stops: number,
+    rules: DispatchRules & { dispatchRadiusKm: number; orderPopupSec: number },
   ) {
     try {
-      const rows: { id: string }[] = await this.db.query(
-        `SELECT u.id FROM users u
+      const rows: { id: string; lastLat: number; lastLng: number }[] = await this.db.query(
+        `SELECT u.id, u."lastLat", u."lastLng" FROM users u
            JOIN companies c ON c.id = u."companyId"
            LEFT JOIN independent_profiles p ON p."companyId" = c.id
           WHERE u.role = 'DRIVER' AND u.active AND c.active
@@ -197,14 +210,43 @@ export class NotifyService implements OnModuleInit {
             AND (CASE WHEN $3 THEN c.independent AND p.status = 'APPROVED' ELSE NOT c.independent END)
             AND 6371 * 2 * asin(sqrt(power(sin(radians(u."lastLat" - $4) / 2), 2)
                 + cos(radians($4)) * cos(radians(u."lastLat")) * power(sin(radians(u."lastLng" - $5) / 2), 2))) <= $6
-          LIMIT 100`,
-        [new Date(Date.now() - ONLINE_MS), d.targetCompanyId, d.forIndependents, d.pickupLat, d.pickupLng, RADIUS_KM],
+          LIMIT 200`,
+        [new Date(Date.now() - ONLINE_MS), d.targetCompanyId, d.forIndependents, d.pickupLat, d.pickupLng, rules.dispatchRadiusKm],
       );
-      this.send(rows.map((r) => r.id), 'NEW_ORDER', {
-        title: `Nouvelle course · ${money(d.price)}`,
-        body: `Départ ${d.pickupCommune ?? 'à proximité'}${stops > 1 ? ` · ${stops} arrêts` : ''}`,
-        deliveryId: d.id,
-      });
+      const busy = await activeCourses(this.db, rows.map((r) => r.id));
+      const pickup = { lat: d.pickupLat, lng: d.pickupLng };
+      const last = d.stops?.[d.stops.length - 1];
+      const order = {
+        price: d.price,
+        currency: d.currency ?? null,
+        pickupCommune: d.pickupCommune ?? null,
+        pickupAddress: d.pickupAddress ?? null,
+        dropCommune: last?.commune ?? null,
+        dropAddress: last?.address ?? null,
+        stops,
+        distanceKm: d.distanceKm ?? null,
+        durationMin: d.durationMin ?? null,
+        vehicleType: d.vehicleType ?? null,
+        speed: d.speed ?? null,
+        cod: (d.stops ?? []).reduce((t, s) => t + (s.codAmount ?? 0), 0),
+      };
+      const expiresAt = new Date(Date.now() + rules.orderPopupSec * 1000).toISOString();
+      for (const r of rows) {
+        const me = { lat: Number(r.lastLat), lng: Number(r.lastLng) };
+        const courses = busy.get(r.id) ?? [];
+        const match = courses.length ? matchBusyDriver(me, courses, pickup, rules) : null;
+        if (courses.length && !match) continue;
+        const km = Math.round(distanceM(me, pickup) / 100) / 10;
+        this.send([r.id], 'NEW_ORDER', {
+          title: `${match?.kind === 'ROUTE' ? 'Sur votre trajet · ' : ''}Nouvelle course · ${money(d.price)}`,
+          body: `Départ ${d.pickupCommune ?? 'à proximité'} (à ${km} km)${stops > 1 ? ` · ${stops} arrêts` : ''}`,
+          deliveryId: d.id,
+          order: { ...order, fromMeKm: km },
+          match,
+          busy: courses.length,
+          expiresAt,
+        });
+      }
     } catch (e) {
       this.logger.warn(`Notification nouvelle course : ${(e as Error).message}`);
     }

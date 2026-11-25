@@ -10,6 +10,8 @@ import { IndependentsService } from '../independents/independents.service';
 import { NotifyService } from '../notifications/notify.service';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { Offer, OfferStatus } from './offer.entity';
+import { assertCanTakeMore } from '../deliveries/dispatch';
+import { SettingsService } from '../settings/settings.service';
 import { User } from '../users/user.entity';
 
 /** Durée de validité d'une proposition */
@@ -30,6 +32,7 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
     private billing: BillingService,
     private independents: IndependentsService,
     private push: NotifyService,
+    private settings: SettingsService,
   ) {}
 
   // ---------- Livreur ----------
@@ -48,6 +51,7 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
     if (price > d.price * MAX_OFFER_FACTOR) {
       throw new BadRequestException(`Proposition trop élevée (maximum ${money(d.price * MAX_OFFER_FACTOR)})`);
     }
+    await assertCanTakeMore(this.dataSource, user.sub, this.settings.pricing.maxActiveCourses);
     // L'entreprise doit pouvoir payer la commission à ce prix (vérifié à nouveau quand le client accepte)
     await this.billing.check(user.companyId, price);
     // Une seule proposition active par livreur et par course : la nouvelle remplace l'ancienne
@@ -117,6 +121,10 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
       throw new BadRequestException('Cette proposition a expiré');
     }
     const others = await this.dataSource.transaction(async (m) => {
+      // Le livreur a pu accepter d'autres courses entre-temps
+      await assertCanTakeMore(m, offer.driverId, this.settings.pricing.maxActiveCourses).catch(() => {
+        throw new BadRequestException('Ce livreur a désormais trop de courses en cours : choisissez une autre proposition');
+      });
       const commission = await this.billing.reserve(m, offer.companyId, offer.price).catch(() => {
         throw new BadRequestException(UNPAYABLE);
       });

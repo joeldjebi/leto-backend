@@ -148,7 +148,7 @@ export class SettingsService implements OnModuleInit {
       if (Array.isArray(sc.rushRanges)) out.surcharges.rushRanges = sc.rushRanges.map((x) => String(x).trim()).filter(Boolean);
       if (Array.isArray(sc.floodCommunes)) out.surcharges.floodCommunes = sc.floodCommunes.map((x) => String(x).trim()).filter(Boolean);
     }
-    for (const k of ['codFee', 'extraStopFee', 'maxStops', 'absenceWaitMin', 'cancelFeeValue', 'cancelFreeMinutes', 'cancelRequestAutoMin', 'orderExpiryMin'] as const) {
+    for (const k of ['codFee', 'extraStopFee', 'maxStops', 'absenceWaitMin', 'cancelFeeValue', 'cancelFreeMinutes', 'cancelRequestAutoMin', 'orderExpiryMin', 'dispatchRadiusKm', 'busyRadiusKm', 'routeCorridorM', 'maxActiveCourses', 'orderPopupSec'] as const) {
       if (input[k] !== undefined) out[k] = input[k] as number;
     }
     return out;
@@ -188,6 +188,12 @@ export class SettingsService implements OnModuleInit {
     num(g.cancelFreeMinutes, 'Annulation gratuite (min)', 0, 60);
     num(g.cancelRequestAutoMin, 'Délai de confirmation d’une annulation (min)', 1, 120);
     num(g.orderExpiryMin, 'Expiration des commandes sans livreur (min, 0 = jamais)', 0, 1440);
+    num(g.dispatchRadiusKm, 'Rayon des nouvelles commandes (km)', 1, 50);
+    num(g.busyRadiusKm, 'Livreur en course : rayon autour de lui (km)', 0, 20);
+    num(g.routeCorridorM, 'Livreur en course : distance au trajet (m)', 0, 5000);
+    num(g.maxActiveCourses, 'Courses en même temps par livreur', 1, 10);
+    if (!Number.isInteger(g.maxActiveCourses)) throw new BadRequestException('Courses en même temps : nombre entier attendu');
+    num(g.orderPopupSec, 'Durée de l’alerte nouvelle commande (s)', 10, 120);
     num(g.multiStopDiscountPct, 'Réduction par arrêt supplémentaire (%)', 0, 50);
     num(g.multiStopDiscountMaxPct, 'Réduction tournée maximum (%)', 0, 80);
     const sc = g.surcharges;

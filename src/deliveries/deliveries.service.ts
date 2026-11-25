@@ -14,6 +14,7 @@ import { Company } from '../companies/company.entity';
 import { allInGrandAbidjan, haversineKm, nearestCommune } from '../geo/communes';
 import { GeoService } from '../geo/geo.service';
 import { Offer, OfferStatus } from '../offers/offer.entity';
+import { activeCourses, assertCanTakeMore, Match, matchBusyDriver } from './dispatch';
 import { computePrice, DeliverySpeed, stopDiscountPct, VehicleType } from '../pricing/pricing';
 import { SurchargeService } from '../pricing/surcharge.service';
 import { TrackingGateway } from '../tracking/tracking.gateway';
@@ -149,7 +150,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
         deliveryId: delivery.id,
       });
     } else {
-      void this.push.newOrder(delivery, ordered.length);
+      void this.push.newOrder(delivery, ordered.length, grid);
     }
     if (company) this.tracking.emitToCompany(company.id, 'delivery:new', { deliveryId: delivery.id });
     // Back-office : l'entreprise choisie par le client (pas pour ses propres commandes) et le SA
@@ -277,7 +278,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     }
     await this.repo.update(id, { targetCompanyId: null, assignedDriverId: null });
     const opened = await this.findOne(id, true);
-    void this.push.newOrder(opened, opened.stops.length);
+    void this.push.newOrder(opened, opened.stops.length, this.settings.pricing);
     return this.notify(opened);
   }
 
@@ -645,7 +646,22 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       if (d.client) d.client.phone = undefined;
       for (const s of d.stops) s.recipientPhone = undefined;
     }
-    return list;
+    // Livreur déjà en course : seulement les commandes sur son trajet ou près de lui (et celles que son entreprise lui affecte)
+    const courses = (await activeCourses(this.dataSource, [user.sub])).get(user.sub) ?? [];
+    if (!courses.length) return list;
+    const me = await this.users.findOne({ where: { id: user.sub }, select: { id: true, lastLat: true, lastLng: true } });
+    const rules = this.settings.pricing;
+    const out: (Delivery & { match?: Match | null })[] = [];
+    for (const d of list) {
+      if (d.assignedDriverId === user.sub) {
+        out.push(d);
+        continue;
+      }
+      if (me?.lastLat == null || me.lastLng == null) continue;
+      const match = matchBusyDriver({ lat: me.lastLat, lng: me.lastLng }, courses, { lat: d.pickupLat, lng: d.pickupLng }, rules);
+      if (match) out.push(Object.assign(d, { match }));
+    }
+    return out;
   }
 
   forDriver(driverId: string) {
@@ -660,6 +676,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     await this.dataSource.transaction(async (m) => {
       const d = await m.findOneBy(Delivery, { id });
       if (!d || d.status !== DeliveryStatus.PENDING) throw new ConflictException('Course déjà prise ou indisponible');
+      // Course affectée par son entreprise : acceptée même au-delà du maximum
+      if (d.assignedDriverId !== user.sub) await assertCanTakeMore(m, user.sub, this.settings.pricing.maxActiveCourses);
       if (d.targetCompanyId && d.targetCompanyId !== user.companyId) throw new ForbiddenException('Course réservée à une autre entreprise');
       if (d.assignedDriverId && d.assignedDriverId !== user.sub) throw new ForbiddenException('Course affectée à un autre livreur');
       const independent = await this.independents.isIndependent(user.companyId);

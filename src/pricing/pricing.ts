@@ -64,6 +64,16 @@ export interface PricingGrid {
   /** Tournées : réduction (%) par arrêt au-delà du premier, plafonnée */
   multiStopDiscountPct: number;
   multiStopDiscountMaxPct: number;
+  /** Livreurs libres : rayon (km) autour du départ pour être prévenus d'une nouvelle commande */
+  dispatchRadiusKm: number;
+  /** Livreur déjà en course : prévenu si le départ est à moins de ce rayon (km) de lui… */
+  busyRadiusKm: number;
+  /** … ou à moins de cette distance (m) de son trajet restant */
+  routeCorridorM: number;
+  /** Nombre maximum de courses en cours en même temps par livreur */
+  maxActiveCourses: number;
+  /** Durée d'affichage de l'alerte « nouvelle commande » chez le livreur (secondes) */
+  orderPopupSec: number;
   /** Majorations selon l'heure, la météo et les zones inondables */
   surcharges: SurchargeRules;
   /** Version des règles par défaut appliquées (mise à jour automatique des anciennes grilles) */
@@ -148,6 +158,11 @@ export const defaultGrid = (): PricingGrid => ({
   orderExpiryMin: 30,
   multiStopDiscountPct: 5,
   multiStopDiscountMaxPct: 25,
+  dispatchRadiusKm: 10,
+  busyRadiusKm: 2,
+  routeCorridorM: 500,
+  maxActiveCourses: 3,
+  orderPopupSec: 30,
   surcharges: defaultSurcharges(),
   rev: PRICING_REV,
 });
