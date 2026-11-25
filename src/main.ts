@@ -10,8 +10,10 @@ async function bootstrap() {
   app.enableCors(origins.length ? { origin: origins } : undefined);
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
   const port = process.env.PORT ?? 3000;
-  await app.listen(port);
-  console.log(`LETO API démarrée sur http://localhost:${port}`);
+  // Écoute sur le serveur seulement : on passe par Apache (HTTPS). HOST=0.0.0.0 pour tester depuis un téléphone sur le Wi-Fi
+  const host = process.env.HOST || '127.0.0.1';
+  await app.listen(port, host);
+  console.log(`LETO API démarrée sur http://${host}:${port}`);
 }
 // Démarrage impossible (port déjà pris, base injoignable) : le processus s'arrête, pm2 le signale et le relance
 // (sinon il reste « online » sans répondre à personne)
