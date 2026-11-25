@@ -74,6 +74,10 @@ export interface PricingGrid {
   maxActiveCourses: number;
   /** Durée d'affichage de l'alerte « nouvelle commande » chez le livreur (secondes) */
   orderPopupSec: number;
+  /** Envoi par vagues : nombre de livreurs prévenus à chaque vague (les plus proches d'abord) */
+  dispatchWaveSize: number;
+  /** … et délai (secondes) avant de prévenir les suivants si personne n'a accepté */
+  dispatchWaveSec: number;
   /** Majorations selon l'heure, la météo et les zones inondables */
   surcharges: SurchargeRules;
   /** Version des règles par défaut appliquées (mise à jour automatique des anciennes grilles) */
@@ -163,6 +167,8 @@ export const defaultGrid = (): PricingGrid => ({
   routeCorridorM: 500,
   maxActiveCourses: 3,
   orderPopupSec: 30,
+  dispatchWaveSize: 3,
+  dispatchWaveSec: 15,
   surcharges: defaultSurcharges(),
   rev: PRICING_REV,
 });

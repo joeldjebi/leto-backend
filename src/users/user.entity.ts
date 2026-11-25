@@ -73,6 +73,10 @@ export class User {
   @Column({ type: 'timestamptz', nullable: true })
   lastLocationAt: Date | null;
 
+  /** Livreur : ordre de sa tournée (clés des étapes P:/S:/R:), choisi par lui ou optimisé */
+  @Column({ type: 'jsonb', nullable: true, select: false })
+  routePlan: string[] | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }

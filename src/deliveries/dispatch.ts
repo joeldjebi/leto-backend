@@ -7,14 +7,15 @@ import { ConflictException } from '@nestjs/common';
 
 export type LatLng = { lat: number; lng: number };
 
-/** Course en cours d'un livreur (départ, statut et arrêts encore à livrer, dans l'ordre) */
+/** Course en cours d'un livreur (départ, statut et arrêts, dans l'ordre) */
 export interface ActiveCourse {
+  id?: string;
   status: string;
   pickupLat: number;
   pickupLng: number;
   returnRequired?: boolean;
   returnedAt?: Date | string | null;
-  stops: { lat: number; lng: number; status: string; position: number }[];
+  stops: { id?: string; lat: number; lng: number; status: string; position: number }[];
 }
 
 export interface DispatchRules {
@@ -65,11 +66,12 @@ export function remainingPath(me: LatLng, courses: ActiveCourse[]): LatLng[] {
 /**
  * Une commande partant de `pickup` peut-elle être proposée à ce livreur déjà en course ?
  * Oui si le départ est à moins de `routeCorridorM` de son trajet restant, ou à moins de `busyRadiusKm` de lui.
+ * `road` : tracé routier du trajet restant (sinon lignes droites entre les étapes).
  */
-export function matchBusyDriver(me: LatLng, courses: ActiveCourse[], pickup: LatLng, rules: DispatchRules): Match | null {
+export function matchBusyDriver(me: LatLng, courses: ActiveCourse[], pickup: LatLng, rules: DispatchRules, road?: LatLng[] | null): Match | null {
   if (courses.length >= rules.maxActiveCourses) return null;
   const km = Math.round(distanceM(me, pickup) / 100) / 10;
-  const path = remainingPath(me, courses);
+  const path = road && road.length >= 2 ? road : remainingPath(me, courses);
   if (rules.routeCorridorM > 0) {
     for (let i = 0; i + 1 < path.length; i++) {
       if (distanceToSegmentM(pickup, path[i], path[i + 1]) <= rules.routeCorridorM) return { kind: 'ROUTE', km };
@@ -87,7 +89,7 @@ export async function activeCourses(db: Db, driverIds: string[]): Promise<Map<st
   if (!driverIds.length) return out;
   const rows: any[] = await db.query(
     `SELECT d.id, d."driverId", d.status, d."pickupLat", d."pickupLng", d."returnRequired", d."returnedAt",
-            COALESCE(json_agg(json_build_object('lat', s.lat, 'lng', s.lng, 'status', s.status, 'position', s.position))
+            COALESCE(json_agg(json_build_object('id', s.id, 'lat', s.lat, 'lng', s.lng, 'status', s.status, 'position', s.position))
                      FILTER (WHERE s.id IS NOT NULL), '[]') AS stops
        FROM deliveries d
        LEFT JOIN delivery_stops s ON s."deliveryId" = d.id
@@ -99,12 +101,13 @@ export async function activeCourses(db: Db, driverIds: string[]): Promise<Map<st
   for (const r of rows) {
     const list = out.get(r.driverId) ?? [];
     list.push({
+      id: r.id,
       status: r.status,
       pickupLat: Number(r.pickupLat),
       pickupLng: Number(r.pickupLng),
       returnRequired: r.returnRequired,
       returnedAt: r.returnedAt,
-      stops: (r.stops as any[]).map((s) => ({ lat: Number(s.lat), lng: Number(s.lng), status: s.status, position: s.position })),
+      stops: (r.stops as any[]).map((s) => ({ id: s.id, lat: Number(s.lat), lng: Number(s.lng), status: s.status, position: s.position })),
     });
     out.set(r.driverId, list);
   }

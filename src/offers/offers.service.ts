@@ -11,6 +11,7 @@ import { NotifyService } from '../notifications/notify.service';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { Offer, OfferStatus } from './offer.entity';
 import { assertCanTakeMore } from '../deliveries/dispatch';
+import { DispatchService } from '../deliveries/dispatch.service';
 import { SettingsService } from '../settings/settings.service';
 import { User } from '../users/user.entity';
 
@@ -33,6 +34,7 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
     private independents: IndependentsService,
     private push: NotifyService,
     private settings: SettingsService,
+    private dispatch: DispatchService,
   ) {}
 
   // ---------- Livreur ----------
@@ -69,6 +71,7 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
       }),
     );
     this.tracking.emitToDelivery(deliveryId, 'delivery:offers', { deliveryId });
+    void this.dispatch.proposed(deliveryId, user.sub);
     const driver = await this.dataSource.getRepository(User).findOneBy({ id: user.sub });
     this.push.send([d.clientId], 'CLIENT_UPDATE', {
       title: 'Nouvelle proposition de prix',
@@ -160,6 +163,7 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
       throw e;
     });
 
+    await this.dispatch.accepted(offer.deliveryId, offer.driverId);
     this.tracking.emitToUser(offer.driverId, 'offer:accepted', { deliveryId: offer.deliveryId });
     this.push.send([offer.driverId], 'ASSIGNED', { title: 'Proposition acceptée', body: `Le client a accepté ${money(offer.price)} : allez au point de départ`, deliveryId: offer.deliveryId });
     for (const o of others) this.tracking.emitToUser(o.driverId, 'offer:rejected', { deliveryId: offer.deliveryId });

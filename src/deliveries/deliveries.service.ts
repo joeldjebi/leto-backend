@@ -14,7 +14,9 @@ import { Company } from '../companies/company.entity';
 import { allInGrandAbidjan, haversineKm, nearestCommune } from '../geo/communes';
 import { GeoService } from '../geo/geo.service';
 import { Offer, OfferStatus } from '../offers/offer.entity';
-import { activeCourses, assertCanTakeMore, Match, matchBusyDriver } from './dispatch';
+import { activeCourses, assertCanTakeMore, Match } from './dispatch';
+import { DispatchService } from './dispatch.service';
+import { PlanService } from './plan.service';
 import { computePrice, DeliverySpeed, stopDiscountPct, VehicleType } from '../pricing/pricing';
 import { SurchargeService } from '../pricing/surcharge.service';
 import { TrackingGateway } from '../tracking/tracking.gateway';
@@ -45,6 +47,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     private independents: IndependentsService,
     private push: NotifyService,
     private surcharge: SurchargeService,
+    private dispatch: DispatchService,
+    private plan: PlanService,
   ) {}
 
   /** Notifie en temps réel puis renvoie la course */
@@ -150,7 +154,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
         deliveryId: delivery.id,
       });
     } else {
-      void this.push.newOrder(delivery, ordered.length, grid);
+      void this.dispatch.start(delivery.id, grid);
     }
     if (company) this.tracking.emitToCompany(company.id, 'delivery:new', { deliveryId: delivery.id });
     // Back-office : l'entreprise choisie par le client (pas pour ses propres commandes) et le SA
@@ -208,6 +212,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     if (driverId) await this.companyDriver(companyId, driverId);
     const previous = d.assignedDriverId;
     await this.repo.update(id, { assignedDriverId: driverId, assignmentNote: null });
+    if (driverId) void this.dispatch.closed(id);
     if (previous && previous !== driverId) {
       this.tracking.emitToUser(previous, 'delivery:unassigned', { deliveryId: id });
       this.push.send([previous], 'UPDATED', { title: 'Affectation retirée', body: 'Votre entreprise a retiré cette course', deliveryId: id });
@@ -246,6 +251,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       if (route) await m.update(Delivery, id, { distanceKm: Math.round(route.distanceKm * 10) / 10, durationMin: route.durationMin });
     });
     if (d.driverId) {
+      await this.plan.applyCompanyOrder(d.driverId, id, stopIds);
       this.tracking.emitToUser(d.driverId, 'delivery:reordered', { deliveryId: id });
       this.push.send([d.driverId], 'UPDATED', { title: 'Ordre de passage modifié', body: 'Votre entreprise a changé l’ordre des arrêts', deliveryId: id });
     }
@@ -278,7 +284,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     }
     await this.repo.update(id, { targetCompanyId: null, assignedDriverId: null });
     const opened = await this.findOne(id, true);
-    void this.push.newOrder(opened, opened.stops.length, this.settings.pricing);
+    void this.dispatch.start(opened.id);
     return this.notify(opened);
   }
 
@@ -646,11 +652,14 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       if (d.client) d.client.phone = undefined;
       for (const s of d.stops) s.recipientPhone = undefined;
     }
+    // Envoi par vagues : une course n'apparaît qu'une fois le livreur prévenu (ou toutes les vagues passées)
+    const visible = list.filter((d) => d.assignedDriverId === user.sub || this.dispatch.canSee(d.id, user.sub));
+    list.length = 0;
+    list.push(...visible);
     // Livreur déjà en course : seulement les commandes sur son trajet ou près de lui (et celles que son entreprise lui affecte)
     const courses = (await activeCourses(this.dataSource, [user.sub])).get(user.sub) ?? [];
     if (!courses.length) return list;
     const me = await this.users.findOne({ where: { id: user.sub }, select: { id: true, lastLat: true, lastLng: true } });
-    const rules = this.settings.pricing;
     const out: (Delivery & { match?: Match | null })[] = [];
     for (const d of list) {
       if (d.assignedDriverId === user.sub) {
@@ -658,7 +667,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
         continue;
       }
       if (me?.lastLat == null || me.lastLng == null) continue;
-      const match = matchBusyDriver({ lat: me.lastLat, lng: me.lastLng }, courses, { lat: d.pickupLat, lng: d.pickupLng }, rules);
+      const match = await this.dispatch.matchFor(user.sub, { lat: me.lastLat, lng: me.lastLng }, courses, { lat: d.pickupLat, lng: d.pickupLng });
       if (match) out.push(Object.assign(d, { match }));
     }
     return out;
@@ -693,6 +702,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
         .execute();
       if (!res.affected) throw new ConflictException('Course déjà prise ou indisponible');
     });
+    await this.dispatch.accepted(id, user.sub);
     await this.closeOffers(id);
     const accepted = await this.findOne(id);
     if (accepted.companyId && !accepted.company?.independent) {
@@ -910,6 +920,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
 
   /** Refuse les propositions de prix encore en attente sur une course (prise, annulée ou expirée) et prévient leurs livreurs */
   private async closeOffers(deliveryId: string) {
+    await this.dispatch.closed(deliveryId);
     const pending = await this.offers.find({ where: { deliveryId, status: OfferStatus.PENDING }, select: { id: true, driverId: true } });
     if (!pending.length) return;
     await this.offers.update({ deliveryId, status: OfferStatus.PENDING }, { status: OfferStatus.REJECTED });

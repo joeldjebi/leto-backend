@@ -152,3 +152,12 @@ export class RateDto {
   @IsOptional() @IsArray() @ArrayMaxSize(10) @IsIn(RATING_TAGS as unknown as string[], { each: true }) tags?: string[];
   @IsOptional() @IsString() @MaxLength(500) comment?: string;
 }
+
+/** Tournée du livreur : clés des étapes dans l'ordre voulu */
+export class PlanDto {
+  @IsArray() @ArrayMaxSize(200) @IsString({ each: true }) @MaxLength(80, { each: true }) keys: string[];
+}
+
+export class AlertResponseDto {
+  @IsIn(['DECLINED', 'EXPIRED']) action: 'DECLINED' | 'EXPIRED';
+}

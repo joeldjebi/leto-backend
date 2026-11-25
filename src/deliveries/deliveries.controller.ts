@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { Role } from '../users/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -6,11 +6,16 @@ import { Repository } from 'typeorm';
 import { User } from '../users/user.entity';
 import { AdminCancelDto, AnswerCancelDto, AssignDto, CancelRequestDto, CancelStopDto, CompanyOrderDto, ConfirmStopDto, CreateDeliveryDto, DeclineAssignmentDto, DisputeStopDto, FailStopDto, RateDto, ReorderStopsDto, ResolveDisputeDto, ReturnDto } from './deliveries.dto';
 import { DeliveriesService } from './deliveries.service';
+import { AlertResponseDto, PlanDto } from './deliveries.dto';
+import { DispatchService } from './dispatch.service';
+import { PlanService } from './plan.service';
 
 @Controller('deliveries')
 export class DeliveriesController {
   constructor(
     private service: DeliveriesService,
+    private plan: PlanService,
+    private dispatch: DispatchService,
     @InjectRepository(User) private users: Repository<User>,
   ) {}
 
@@ -130,6 +135,40 @@ export class DeliveriesController {
   @Roles(Role.DRIVER)
   forDriver(@CurrentUser() user: AuthUser) {
     return this.service.forDriver(user.sub);
+  }
+
+  /** Tournée du livreur : ordre de passage de toutes ses courses en cours */
+  @Get('driver/plan')
+  @Roles(Role.DRIVER)
+  getPlan(@CurrentUser() user: AuthUser) {
+    return this.plan.get(user.sub);
+  }
+
+  @Put('driver/plan')
+  @Roles(Role.DRIVER)
+  savePlan(@CurrentUser() user: AuthUser, @Body() dto: PlanDto) {
+    return this.plan.save(user.sub, dto.keys);
+  }
+
+  @Post('driver/plan/optimize')
+  @Roles(Role.DRIVER)
+  optimizePlan(@CurrentUser() user: AuthUser) {
+    return this.plan.optimize(user.sub);
+  }
+
+  /** Réponse à l'alerte « nouvelle course » : refusée ou expirée (statistiques de réactivité) */
+  @Post(':id/alert')
+  @Roles(Role.DRIVER)
+  alert(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: AlertResponseDto) {
+    return this.dispatch.respond(user.sub, id, dto.action);
+  }
+
+  /** Réactivité des livreurs (SA : tous ; gérant : ses livreurs) */
+  @Get('driver-stats')
+  @Roles(Role.SUPER_ADMIN, Role.COMPANY)
+  driverStats(@CurrentUser() user: AuthUser, @Query('days') days?: string) {
+    const n = Math.min(365, Math.max(1, Number(days) || 30));
+    return this.dispatch.stats(user.role === Role.SUPER_ADMIN ? null : user.companyId, n);
   }
 
   @Post(':id/accept')

@@ -148,7 +148,7 @@ export class SettingsService implements OnModuleInit {
       if (Array.isArray(sc.rushRanges)) out.surcharges.rushRanges = sc.rushRanges.map((x) => String(x).trim()).filter(Boolean);
       if (Array.isArray(sc.floodCommunes)) out.surcharges.floodCommunes = sc.floodCommunes.map((x) => String(x).trim()).filter(Boolean);
     }
-    for (const k of ['codFee', 'extraStopFee', 'maxStops', 'absenceWaitMin', 'cancelFeeValue', 'cancelFreeMinutes', 'cancelRequestAutoMin', 'orderExpiryMin', 'dispatchRadiusKm', 'busyRadiusKm', 'routeCorridorM', 'maxActiveCourses', 'orderPopupSec'] as const) {
+    for (const k of ['codFee', 'extraStopFee', 'maxStops', 'absenceWaitMin', 'cancelFeeValue', 'cancelFreeMinutes', 'cancelRequestAutoMin', 'orderExpiryMin', 'dispatchRadiusKm', 'busyRadiusKm', 'routeCorridorM', 'maxActiveCourses', 'orderPopupSec', 'dispatchWaveSize', 'dispatchWaveSec'] as const) {
       if (input[k] !== undefined) out[k] = input[k] as number;
     }
     return out;
@@ -194,6 +194,8 @@ export class SettingsService implements OnModuleInit {
     num(g.maxActiveCourses, 'Courses en même temps par livreur', 1, 10);
     if (!Number.isInteger(g.maxActiveCourses)) throw new BadRequestException('Courses en même temps : nombre entier attendu');
     num(g.orderPopupSec, 'Durée de l’alerte nouvelle commande (s)', 10, 120);
+    num(g.dispatchWaveSize, 'Livreurs prévenus par vague', 1, 50);
+    num(g.dispatchWaveSec, 'Délai entre deux vagues (s)', 5, 120);
     num(g.multiStopDiscountPct, 'Réduction par arrêt supplémentaire (%)', 0, 50);
     num(g.multiStopDiscountMaxPct, 'Réduction tournée maximum (%)', 0, 80);
     const sc = g.surcharges;

@@ -17,6 +17,9 @@ import { IdentityFilesController, IndependentsController } from './independents/
 import { IndependentsService } from './independents/independents.service';
 import { NotificationsController } from './notifications/notifications.controller';
 import { NotifyService } from './notifications/notify.service';
+import { DispatchService } from './deliveries/dispatch.service';
+import { PlanService } from './deliveries/plan.service';
+import { OrderAlert } from './deliveries/order-alert.entity';
 import { LandingController } from './landing/landing.controller';
 import { LandingService } from './landing/landing.service';
 import { VideoVisit } from './landing/video-visit.entity';
@@ -66,12 +69,12 @@ import { UsersController } from './users/users.controller';
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect],
+      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert],
       // Crée / met à jour les tables au démarrage (DB_SYNC=false pour désactiver).
       // À remplacer par des migrations TypeORM quand le schéma sera stabilisé.
       synchronize: process.env.DB_SYNC !== 'false',
     }),
-    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect]),
+    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
@@ -116,6 +119,8 @@ import { UsersController } from './users/users.controller';
     StatsService,
     IndependentsService,
     NotifyService,
+    DispatchService,
+    PlanService,
     LandingService,
     VideoVisitsService,
     CancelReasonsService,
