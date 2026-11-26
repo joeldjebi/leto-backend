@@ -136,6 +136,18 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
     return { ok: true };
   }
 
+  /** Entreprise de rattachement d'un LI (cache d'une minute) */
+  private affCache = new Map<string, { aff: string | null; at: number }>();
+  private async affiliateOf(companyId?: string | null) {
+    if (!companyId) return null;
+    const hit = this.affCache.get(companyId);
+    if (hit && Date.now() - hit.at < 60_000) return hit.aff;
+    const [row] = await this.users.manager.query(`SELECT "affiliatedCompanyId" FROM independent_profiles WHERE "companyId" = $1`, [companyId]);
+    const aff = (row?.affiliatedCompanyId as string | undefined) ?? null;
+    this.affCache.set(companyId, { aff, at: Date.now() });
+    return aff;
+  }
+
   /** Dernière écriture en base par livreur (la diffusion, elle, est immédiate) */
   private savedAt = new Map<string, number>();
 
@@ -162,7 +174,10 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
     }
 
     const payload = { driverId: user.sub, lat, lng, heading, speed, at };
-    this.server.to(`company:${user.companyId}`).to('super-admin').emit('driver:location', payload);
+    const aff = await this.affiliateOf(user.companyId);
+    let rooms = this.server.to(`company:${user.companyId}`).to('super-admin');
+    if (aff) rooms = rooms.to(`company:${aff}`); // LI rattaché : visible par son entreprise
+    rooms.emit('driver:location', payload);
 
     // Diffuse aux clients qui suivent les courses en cours de ce livreur
     const active = await this.deliveries.find({

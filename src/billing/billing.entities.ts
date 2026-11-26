@@ -61,6 +61,8 @@ export enum CreditType {
   COMMISSION = 'COMMISSION', // commission d'une course
   REFUND = 'REFUND', // remboursement (litige donné au client)
   ADJUSTMENT = 'ADJUSTMENT', // correction manuelle du SA
+  AFFILIATE_COMMISSION = 'AFFILIATE_COMMISSION', // LI : commission de son entreprise
+  EARNINGS_TRANSFER = 'EARNINGS_TRANSFER', // entreprise : gains LI transférés vers le crédit
 }
 
 /** Journal du crédit : chaque mouvement est enregistré, jamais modifié */

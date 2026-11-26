@@ -8,6 +8,7 @@ import { Delivery, DeliveryStatus } from '../deliveries/delivery.entity';
 import { IndependentsService } from '../independents/independents.service';
 import { Setting } from '../settings/setting.entity';
 import { TrackingGateway } from '../tracking/tracking.gateway';
+import { CompanyEarning, EarningType } from '../affiliations/affiliation.entities';
 import { CreditTransaction, CreditType, Payment, PaymentKind, PaymentStatus } from './billing.entities';
 
 export type CommissionType = 'PERCENT' | 'FIXED';
@@ -126,8 +127,10 @@ export class BillingService implements OnModuleInit {
   /** Commissions réservées par les courses en cours de l'entreprise */
   private async reserved(m: EntityManager, companyId: string) {
     const [row] = await m.query(
-      `SELECT coalesce(sum("commissionAmount"), 0)::int AS total FROM deliveries
-        WHERE "companyId" = $1 AND status = ANY($2) AND "commissionChargedAt" IS NULL`,
+      `SELECT coalesce(sum(CASE WHEN "commissionChargedAt" IS NULL THEN coalesce("commissionAmount", 0) ELSE 0 END
+                         + CASE WHEN "affiliateChargedAt" IS NULL THEN coalesce("affiliateCommissionAmount", 0) ELSE 0 END), 0)::int AS total
+         FROM deliveries
+        WHERE "companyId" = $1 AND status = ANY($2)`,
       [companyId, RESERVING],
     );
     return row.total as number;
@@ -189,9 +192,36 @@ export class BillingService implements OnModuleInit {
     if (blocked) throw new BadRequestException(blocked);
     if (!c.active) throw new BadRequestException('Votre compte est suspendu par LETO');
     const { amount, label } = this.commission(c, price);
+    // Rattaché à une entreprise : sa commission est aussi prélevée sur le solde du LI
+    const aff = await this.affiliateCommission(c.id, price);
+    const total = amount + (aff?.affiliateCommissionAmount ?? 0);
     const available = c.credit - (await this.reserved(m, c.id));
-    if (available < amount) throw new BadRequestException(`Solde insuffisant pour cette course (commission ${money(amount)}) : rechargez votre compte`);
-    return { commissionAmount: amount, commissionRule: label };
+    if (available < total) {
+      throw new BadRequestException(
+        `Solde insuffisant pour cette course (commissions ${money(total)}${aff ? `, dont ${money(aff.affiliateCommissionAmount)} pour votre entreprise` : ''}) : rechargez votre compte`,
+      );
+    }
+    return { commissionAmount: amount, commissionRule: label, ...(aff ?? {}) };
+  }
+
+  /** Commission de l'entreprise de rattachement d'un LI (taux accepté par le LI, plafonné par LETO) */
+  async affiliateCommission(liCompanyId: string, price: number) {
+    const [p] = await this.db.query(
+      `SELECT "affiliatedCompanyId", "affCommissionType", "affCommissionValue" FROM independent_profiles WHERE "companyId" = $1`,
+      [liCompanyId],
+    );
+    if (!p?.affiliatedCompanyId || !p.affCommissionType) return null;
+    const value = this.independents.capRule(p.affCommissionType, Number(p.affCommissionValue ?? 0));
+    return {
+      affiliateCompanyId: p.affiliatedCompanyId as string,
+      affiliateRuleType: p.affCommissionType as 'PERCENT' | 'FIXED',
+      affiliateRuleValue: value,
+      affiliateCommissionAmount: this.ruleAmount(p.affCommissionType, value, price),
+    };
+  }
+
+  private ruleAmount(type: 'PERCENT' | 'FIXED', value: number, price: number) {
+    return Math.max(0, type === 'PERCENT' ? Math.round((price * value) / 100) : Math.round(value));
   }
 
   /** Vérification seule, sans réserver (ex. avant une proposition de prix) */
@@ -226,15 +256,41 @@ export class BillingService implements OnModuleInit {
     if (!c) return;
     const { amount, label } = this.commission(c, d.price + (d.extraFees ?? 0));
     await this.db.getRepository(Delivery).update(d.id, { commissionAmount: amount, commissionRule: label });
+    if (d.affiliateRuleType && !d.affiliateChargedAt) {
+      await this.db.getRepository(Delivery).update(d.id, {
+        affiliateCommissionAmount: this.ruleAmount(d.affiliateRuleType, d.affiliateRuleValue ?? 0, d.price + (d.extraFees ?? 0)),
+      });
+    }
   }
 
   /** Fin de tournée : prélève la commission réservée (une seule fois) */
   async charge(deliveryId: string) {
     await this.db.transaction(async (m) => {
       const d = await m.getRepository(Delivery).createQueryBuilder('d').setLock('pessimistic_write').where('d.id = :id', { id: deliveryId }).getOne();
-      if (!d?.companyId || d.commissionChargedAt || !d.commissionAmount) return;
-      await this.move(m, d.companyId, CreditType.COMMISSION, -d.commissionAmount, { deliveryId, note: `Commission ${d.commissionRule ?? ''}`.trim() });
-      await m.update(Delivery, d.id, { commissionChargedAt: new Date() });
+      if (!d?.companyId) return;
+      if (!d.commissionChargedAt && d.commissionAmount) {
+        await this.move(m, d.companyId, CreditType.COMMISSION, -d.commissionAmount, { deliveryId, note: `Commission ${d.commissionRule ?? ''}`.trim() });
+        await m.update(Delivery, d.id, { commissionChargedAt: new Date() });
+      }
+      // LI rattaché : commission de son entreprise, versée dans ses gains (disponibles après le délai de sécurité)
+      if (d.affiliateCompanyId && !d.affiliateChargedAt && d.affiliateCommissionAmount) {
+        const aff = await m.findOneBy(Company, { id: d.affiliateCompanyId });
+        await this.move(m, d.companyId, CreditType.AFFILIATE_COMMISSION, -d.affiliateCommissionAmount, {
+          deliveryId,
+          note: `Commission ${aff?.name ?? 'de votre entreprise'}`,
+        });
+        await m.save(CompanyEarning, {
+          companyId: d.affiliateCompanyId,
+          type: EarningType.COMMISSION,
+          amount: d.affiliateCommissionAmount,
+          availableAt: new Date(Date.now() + this.independents.config.earningsHoldHours * 3_600_000),
+          deliveryId,
+          driverId: d.driverId,
+          note: 'Course d’un livreur indépendant',
+        });
+        await m.update(Delivery, d.id, { affiliateChargedAt: new Date() });
+        this.tracking.emitToCompany(d.affiliateCompanyId, 'earnings:changed', {});
+      }
     });
   }
 
@@ -242,13 +298,40 @@ export class BillingService implements OnModuleInit {
   async refundStop(deliveryId: string, by: string) {
     await this.db.transaction(async (m) => {
       const d = await m.getRepository(Delivery).createQueryBuilder('d').setLock('pessimistic_write').where('d.id = :id', { id: deliveryId }).getOne();
-      if (!d?.companyId || !d.commissionChargedAt || !d.commissionAmount) return;
+      if (!d?.companyId) return;
       const stops = await m.query(`SELECT count(*)::int AS n FROM delivery_stops WHERE "deliveryId" = $1`, [deliveryId]);
-      const share = Math.min(Math.round(d.commissionAmount / Math.max(1, stops[0].n)), d.commissionAmount - d.commissionRefunded);
-      if (share <= 0) return;
-      await this.move(m, d.companyId, CreditType.REFUND, share, { deliveryId, note: 'Litige donné au client', by });
-      await m.update(Delivery, d.id, { commissionRefunded: d.commissionRefunded + share });
+      const n = Math.max(1, stops[0].n);
+      if (d.commissionChargedAt && d.commissionAmount) {
+        const share = Math.min(Math.round(d.commissionAmount / n), d.commissionAmount - d.commissionRefunded);
+        if (share > 0) {
+          await this.move(m, d.companyId, CreditType.REFUND, share, { deliveryId, note: 'Litige donné au client', by });
+          await m.update(Delivery, d.id, { commissionRefunded: d.commissionRefunded + share });
+        }
+      }
+      // Part de l'entreprise de rattachement : rendue au LI, reprise sur les gains de l'entreprise
+      if (d.affiliateCompanyId && d.affiliateChargedAt && d.affiliateCommissionAmount) {
+        const share = Math.min(Math.round(d.affiliateCommissionAmount / n), d.affiliateCommissionAmount - d.affiliateRefunded);
+        if (share > 0) {
+          await this.move(m, d.companyId, CreditType.REFUND, share, { deliveryId, note: 'Litige donné au client (part de l’entreprise)', by });
+          await m.save(CompanyEarning, {
+            companyId: d.affiliateCompanyId,
+            type: EarningType.REVERSAL,
+            amount: -share,
+            availableAt: new Date(),
+            deliveryId,
+            driverId: d.driverId,
+            note: 'Litige donné au client',
+            createdBy: by,
+          });
+          await m.update(Delivery, d.id, { affiliateRefunded: d.affiliateRefunded + share });
+        }
+      }
     });
+  }
+
+  /** Gains LI de l'entreprise transférés vers son crédit (dans la transaction de l'appelant) */
+  creditFromEarnings(m: EntityManager, companyId: string, amount: number, by: string) {
+    return this.move(m, companyId, CreditType.EARNINGS_TRANSFER, amount, { note: 'Gains des livreurs indépendants', by });
   }
 
   /** Mouvement de crédit : met à jour le solde et l'inscrit au journal */

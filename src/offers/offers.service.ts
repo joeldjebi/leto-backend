@@ -42,10 +42,12 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
   async propose(user: AuthUser, deliveryId: string, price: number) {
     const d = await this.deliveries.findOneBy({ id: deliveryId });
     if (!d || d.status !== DeliveryStatus.PENDING) throw new BadRequestException('Cette course n’est plus disponible');
-    if (d.targetCompanyId && d.targetCompanyId !== user.companyId) throw new BadRequestException('Course réservée à une autre entreprise');
     if (d.assignedDriverId && d.assignedDriverId !== user.sub) throw new BadRequestException('Course affectée à un autre livreur');
-    if (d.forIndependents !== (await this.independents.isIndependent(user.companyId))) {
-      throw new BadRequestException(d.forIndependents ? 'Course réservée aux livreurs indépendants' : 'Course réservée aux livreurs des entreprises');
+    const access = await this.independents.access(user.companyId);
+    if (access.blocker) throw new BadRequestException(access.blocker);
+    const [cod] = await this.deliveries.query(`SELECT 1 FROM delivery_stops WHERE "deliveryId" = $1 AND "codAmount" > 0 LIMIT 1`, [deliveryId]);
+    if (!this.independents.canTake(access, d, !!cod)) {
+      throw new BadRequestException(access.independent && cod ? 'Les livreurs indépendants ne prennent pas de paiement à la livraison' : 'Course réservée à une autre entreprise');
     }
     if (price <= d.price) {
       throw new BadRequestException(`Proposez plus de ${money(d.price)}, ou acceptez la course au prix affiché`);

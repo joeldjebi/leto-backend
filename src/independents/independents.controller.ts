@@ -45,6 +45,11 @@ class ConfigDto {
   @IsOptional() @IsBoolean() enabled?: boolean;
   @IsOptional() @IsIn(['PERCENT', 'FIXED']) commissionType?: 'PERCENT' | 'FIXED';
   @IsOptional() @IsNumber() commissionValue?: number;
+  @IsOptional() @IsNumber() companyMaxPct?: number;
+  @IsOptional() @IsNumber() companyMaxFixed?: number;
+  @IsOptional() @IsNumber() transitionDays?: number;
+  @IsOptional() @IsNumber() earningsHoldHours?: number;
+  @IsOptional() @IsNumber() minWithdrawal?: number;
 }
 
 class NoteDto {

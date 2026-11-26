@@ -60,6 +60,12 @@ export class Company {
   @Column({ default: false })
   independent: boolean;
 
+  /** Commission prélevée sur les courses de ses livreurs indépendants rattachés (null = pas encore définie) */
+  @Column({ type: 'varchar', length: 7, nullable: true })
+  liCommissionType: 'PERCENT' | 'FIXED' | null;
+  @Column({ type: 'double precision', nullable: true })
+  liCommissionValue: number | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }

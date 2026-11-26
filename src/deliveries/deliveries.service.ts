@@ -65,6 +65,11 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     private plan: PlanService,
   ) {}
 
+  /** Entreprise à prévenir : celle du livreur, ou l'entreprise de rattachement d'un LI */
+  private officeOf(d: Pick<Delivery, 'companyId' | 'affiliateCompanyId'>) {
+    return d.affiliateCompanyId ?? d.companyId;
+  }
+
   /** Notifie en temps réel puis renvoie la course */
   private notify<T extends Delivery>(d: T): T {
     this.tracking.deliveryChanged(d);
@@ -96,14 +101,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     opts: { companyId?: string | null; source?: 'CLIENT' | 'COMPANY'; assignedDriverId?: string | null; priceOverride?: number } = {},
   ) {
     let company: Company | null = null;
-    const forIndependents = !opts.companyId && dto.forIndependents === true && (opts.source ?? 'CLIENT') === 'CLIENT';
-    if (forIndependents) {
-      // Choix explicite du client : livreurs indépendants, règles LETO par défaut, sans encaissement
-      if (!this.independents.config.enabled) throw new BadRequestException('Les livreurs indépendants ne sont pas disponibles pour le moment');
-      if (dto.stops.some((s) => (s.codAmount ?? 0) > 0)) {
-        throw new BadRequestException('Les livreurs indépendants ne prennent pas de paiement à la livraison : choisissez une entreprise');
-      }
-    }
+    // Les livreurs indépendants sont rattachés à des entreprises : plus de commande réservée aux LI
+    const forIndependents = false;
     if (opts.companyId) {
       company = await this.companies.findOneBy({ id: opts.companyId });
       // Abonnée, en essai gratuit, ou abonnements désactivés par LETO
@@ -212,8 +211,14 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async companyDriver(companyId: string, driverId: string) {
-    const driver = await this.users.findOneBy({ id: driverId, companyId, role: Role.DRIVER });
-    if (!driver) throw new BadRequestException('Livreur introuvable dans votre entreprise');
+    const driver = await this.users.findOneBy({ id: driverId, role: Role.DRIVER });
+    // Ses livreurs, ou les livreurs indépendants qui lui sont rattachés
+    const own = driver?.companyId === companyId;
+    const affiliated =
+      !own && driver?.companyId
+        ? (await this.dataSource.query(`SELECT 1 FROM independent_profiles WHERE "companyId" = $1 AND "affiliatedCompanyId" = $2`, [driver.companyId, companyId])).length > 0
+        : false;
+    if (!driver || (!own && !affiliated)) throw new BadRequestException('Livreur introuvable dans votre entreprise');
     if (!driver.active) throw new BadRequestException('Ce livreur est bloqué');
     return driver;
   }
@@ -248,7 +253,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
    */
   async reorderStops(companyId: string, id: string, stopIds: string[]) {
     const d = await this.findOne(id);
-    if (d.companyId !== companyId && d.targetCompanyId !== companyId) throw new NotFoundException('Course introuvable');
+    if (d.companyId !== companyId && d.targetCompanyId !== companyId && d.affiliateCompanyId !== companyId) throw new NotFoundException('Course introuvable');
     if (d.status === DeliveryStatus.DELIVERED || d.status === DeliveryStatus.CANCELLED) {
       throw new BadRequestException('Cette course est terminée');
     }
@@ -467,8 +472,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     } else if (d.assignedDriverId) {
       this.push.send([d.assignedDriverId], 'CANCELLED', { title: 'Course annulée', body: 'L’expéditeur a annulé la course', deliveryId: id });
     }
-    if (d.companyId && fee) this.tracking.emitToCompany(d.companyId, 'delivery:cancel-fee', { deliveryId: id, fee });
-    const concerned = d.companyId ?? d.targetCompanyId;
+    if (this.officeOf(d) && fee) this.tracking.emitToCompany(this.officeOf(d)!, 'delivery:cancel-fee', { deliveryId: id, fee });
+    const concerned = this.officeOf(d) ?? d.targetCompanyId;
     if (concerned) {
       this.push.office({ companyId: concerned }, 'CANCELLED', {
         title: 'Course annulée par le client',
@@ -556,8 +561,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       recipientName: stop.recipientName,
       autoMin: this.settings.pricing.cancelRequestAutoMin,
     });
-    if (d.companyId && !d.company?.independent) {
-      this.push.office({ companyId: d.companyId }, 'CANCEL_REQUEST', {
+    if (this.officeOf(d) && (!d.company?.independent || d.affiliateCompanyId)) {
+      this.push.office({ companyId: this.officeOf(d) }, 'CANCEL_REQUEST', {
         title: 'Annulation signalée par un livreur',
         body: `${d.driver?.name ?? 'Le livreur'} : ${stop.recipientName} annule${note ? ` (« ${note} »)` : ''}. L’expéditeur doit confirmer.`,
         link: `/courses/${id}`,
@@ -641,8 +646,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     if (!stop || stop.status !== StopStatus.FAILED) throw new BadRequestException('Seul un échec peut être contesté');
     if (stop.disputedAt) throw new BadRequestException('Déjà contesté');
     await this.stops.update(stopId, { disputedAt: new Date(), disputeNote: note ?? null });
-    if (d.companyId) this.tracking.emitToCompany(d.companyId, 'dispute:new', { deliveryId: id, stopId });
-    this.push.office({ companyId: d.companyId, sa: true }, 'DISPUTE', {
+    if (this.officeOf(d)) this.tracking.emitToCompany(this.officeOf(d)!, 'dispute:new', { deliveryId: id, stopId });
+    this.push.office({ companyId: this.officeOf(d), sa: true }, 'DISPUTE', {
       title: 'Nouveau litige',
       body: `L’expéditeur conteste l’échec chez ${stop.recipientName}${note ? ` : « ${note} »` : ''}`,
       link: '/litiges',
@@ -656,12 +661,18 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
   /** Courses en attente (sans les numéros des destinataires tant que la course n'est pas acceptée) */
   async available(user: AuthUser) {
     // Livreur indépendant : uniquement les courses où le client a choisi les indépendants
-    const independent = await this.independents.isIndependent(user.companyId);
-    if (independent && (await this.independents.blocker(user.companyId!))) return [];
+    // LI : commandes ouvertes et celles de son entreprise de rattachement, sans paiement à la livraison
+    const access = await this.independents.access(user.companyId);
+    if (access.blocker) return [];
     const list = await this.query()
       .where('d.status = :s', { s: DeliveryStatus.PENDING })
-      .andWhere('d.forIndependents = :li', { li: independent })
-      .andWhere(independent ? 'TRUE' : '(d.targetCompanyId IS NULL OR d.targetCompanyId = :companyId)', { companyId: user.companyId })
+      .andWhere(
+        access.independent
+          ? `(d.forIndependents OR d.targetCompanyId IS NULL OR d.targetCompanyId = :team)
+             AND NOT EXISTS (SELECT 1 FROM delivery_stops cs WHERE cs."deliveryId" = d.id AND cs."codAmount" > 0)`
+          : 'NOT d.forIndependents AND (d.targetCompanyId IS NULL OR d.targetCompanyId = :team)',
+        { team: access.team ?? '00000000-0000-0000-0000-000000000000' },
+      )
       .andWhere('(d.assignedDriverId IS NULL OR d.assignedDriverId = :me)', { me: user.sub })
       .orderBy('d.createdAt', 'ASC')
       .addOrderBy('stop.position', 'ASC')
@@ -705,11 +716,18 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       if (!d || d.status !== DeliveryStatus.PENDING) throw new ConflictException('Course déjà prise ou indisponible');
       // Course affectée par son entreprise : acceptée même au-delà du maximum
       if (d.assignedDriverId !== user.sub) await assertCanTakeMore(m, user.sub, this.settings.pricing, d.speed);
-      if (d.targetCompanyId && d.targetCompanyId !== user.companyId) throw new ForbiddenException('Course réservée à une autre entreprise');
       if (d.assignedDriverId && d.assignedDriverId !== user.sub) throw new ForbiddenException('Course affectée à un autre livreur');
-      const independent = await this.independents.isIndependent(user.companyId);
-      if (d.forIndependents !== independent) {
-        throw new ForbiddenException(independent ? 'Course réservée aux livreurs des entreprises' : 'Course réservée aux livreurs indépendants');
+      const access = await this.independents.access(user.companyId);
+      if (access.blocker) throw new ForbiddenException(access.blocker);
+      const [cod] = await m.query(`SELECT 1 FROM delivery_stops WHERE "deliveryId" = $1 AND "codAmount" > 0 LIMIT 1`, [id]);
+      if (!this.independents.canTake(access, d, !!cod)) {
+        throw new ForbiddenException(
+          access.independent && cod
+            ? 'Les livreurs indépendants ne prennent pas de paiement à la livraison'
+            : d.targetCompanyId
+              ? 'Course réservée à une autre entreprise'
+              : 'Course réservée aux livreurs indépendants',
+        );
       }
       const commission = await this.billing.reserve(m, user.companyId, d.price);
       const res = await m
@@ -723,8 +741,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     await this.dispatch.accepted(id, user.sub);
     await this.closeOffers(id);
     const accepted = await this.findOne(id);
-    if (accepted.companyId && !accepted.company?.independent) {
-      this.push.office({ companyId: accepted.companyId }, 'ACCEPTED', {
+    if (this.officeOf(accepted) && (!accepted.company?.independent || accepted.affiliateCompanyId)) {
+      this.push.office({ companyId: this.officeOf(accepted) }, 'ACCEPTED', {
         title: 'Course acceptée',
         body: `${accepted.driver?.name ?? 'Un livreur'} · ${money(accepted.price)} · départ ${accepted.pickupCommune ?? accepted.pickupAddress}`,
         link: `/courses/${id}`,
@@ -841,13 +859,13 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
         : `${stop.recipientName} : ${why}. Le colis vous est rapporté.`,
       deliveryId: id,
     });
-    this.push.office({ companyId: d.companyId }, 'FAILED', {
+    this.push.office({ companyId: this.officeOf(d) }, 'FAILED', {
       title: 'Livraison non effectuée',
       body: `${stop.recipientName} : ${why}${stop.attempt > 1 ? ' (2e passage)' : ''}`,
       link: `/courses/${id}`,
       deliveryId: id,
     });
-    this.checkFailRate(driverId, driver.name, d.companyId).catch(() => {});
+    this.checkFailRate(driverId, driver.name, this.officeOf(d)).catch(() => {});
     return this.afterStop(id);
   }
 
@@ -889,7 +907,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     const d = await this.repo.findOneBy({ id });
     if (d) this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Course terminée', body: 'Tous les arrêts sont traités. Merci d’avoir choisi LETO !', deliveryId: id });
     if (d?.companyId) {
-      this.push.office({ companyId: d.companyId }, 'FINISHED', {
+      this.push.office({ companyId: this.officeOf(d) }, 'FINISHED', {
         title: 'Tournée terminée',
         body: `${money(d.price)} · tous les arrêts sont traités`,
         link: `/courses/${id}`,
@@ -934,7 +952,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
   /** Courses de l'entreprise : prises par ses livreurs, ou adressées à elle (en attente) */
   forCompany(companyId: string) {
     return this.query(true)
-      .where('(d.companyId = :companyId OR d.targetCompanyId = :companyId)', { companyId })
+      .where('(d.companyId = :companyId OR d.targetCompanyId = :companyId OR d.affiliateCompanyId = :companyId)', { companyId })
       .getMany();
   }
 
@@ -972,7 +990,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     if (d.driverId) this.tracking.emitToUser(d.driverId, 'delivery:cancelled', { deliveryId: id, reason });
     this.push.send([d.clientId, d.driverId], 'CANCELLED', { title: 'Course annulée par LETO', body: reason, deliveryId: id });
     if (d.companyId ?? d.targetCompanyId) {
-      this.push.office({ companyId: d.companyId ?? d.targetCompanyId }, 'CANCELLED', { title: 'Course annulée par LETO', body: reason, link: `/courses/${id}`, deliveryId: id });
+      this.push.office({ companyId: this.officeOf(d) ?? d.targetCompanyId }, 'CANCELLED', { title: 'Course annulée par LETO', body: reason, link: `/courses/${id}`, deliveryId: id });
     }
     return this.notify(await this.findOne(id));
   }
@@ -980,7 +998,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
   /** Arbitrage d'une contestation (SA, ou gérant de l'entreprise du livreur) */
   async resolveDispute(user: AuthUser, by: string, id: string, stopId: string, decision: DisputeDecision, note?: string) {
     const d = await this.findOne(id);
-    if (user.role === Role.COMPANY && d.companyId !== user.companyId) throw new NotFoundException('Course introuvable');
+    if (user.role === Role.COMPANY && d.companyId !== user.companyId && d.affiliateCompanyId !== user.companyId) throw new NotFoundException('Course introuvable');
     const stop = d.stops.find((s) => s.id === stopId);
     if (!stop?.disputedAt) throw new BadRequestException('Aucune contestation sur cet arrêt');
     if (stop.disputeResolvedAt) throw new BadRequestException('Litige déjà tranché');

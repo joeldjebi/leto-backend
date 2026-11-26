@@ -22,10 +22,38 @@ export interface IndependentsConfig {
   /** Commission LETO sur chaque course d'un LI (différente des entreprises) */
   commissionType: CommissionType;
   commissionValue: number;
+  /** Plafonds de la commission qu'une entreprise peut prendre sur ses LI */
+  companyMaxPct: number;
+  companyMaxFixed: number;
+  /** LI validés avant le rattachement obligatoire : jours pour se rattacher, à partir du début de la transition */
+  transitionDays: number;
+  transitionStartedAt: string | null;
+  /** Gains des entreprises : disponibles après ce délai (litiges), retrait minimum */
+  earningsHoldHours: number;
+  minWithdrawal: number;
+}
+
+/** Accès d'un livreur aux courses : entreprise (team = elle) ou LI (team = entreprise de rattachement, null en transition) */
+export interface DriverAccess {
+  independent: boolean;
+  team: string | null;
+  blocker: string | null;
 }
 
 const KEY = 'independents';
-const DEFAULT: IndependentsConfig = { registrationOpen: false, enabled: true, commissionType: 'PERCENT', commissionValue: 15 };
+const DEFAULT: IndependentsConfig = {
+  registrationOpen: false,
+  enabled: true,
+  commissionType: 'PERCENT',
+  commissionValue: 15,
+  companyMaxPct: 20,
+  companyMaxFixed: 500,
+  transitionDays: 30,
+  transitionStartedAt: null,
+  earningsHoldHours: 48,
+  minWithdrawal: 5000,
+};
+const DAY_MS = 86_400_000;
 /** Durée des liens de lecture des pièces d'identité */
 const LINK_TTL_S = 15 * 60;
 
@@ -91,6 +119,51 @@ export class IndependentsService implements OnModuleInit {
   async onModuleInit() {
     const row = await this.settings.findOneBy({ key: KEY });
     if (row) this.cfg = { ...DEFAULT, ...(row.value as Partial<IndependentsConfig>) };
+    // Rattachement obligatoire : les LI déjà validés gardent leur accès pendant la transition
+    if (!this.cfg.transitionStartedAt) {
+      this.cfg.transitionStartedAt = new Date().toISOString();
+      await this.settings.save({ key: KEY, value: this.cfg, updatedBy: 'Rattachement obligatoire' });
+      await this.db.query(
+        `UPDATE independent_profiles SET "legacyUntil" = $1 WHERE status IN ('APPROVED', 'SUSPENDED') AND "affiliatedCompanyId" IS NULL`,
+        [this.transitionEnd()],
+      );
+    }
+  }
+
+  /** Fin de la période de transition */
+  transitionEnd() {
+    return new Date(new Date(this.cfg.transitionStartedAt ?? Date.now()).getTime() + this.cfg.transitionDays * DAY_MS);
+  }
+
+  /** Commission d'une entreprise sur un LI, ramenée sous les plafonds de LETO */
+  capRule(type: CommissionType, value: number) {
+    return type === 'PERCENT' ? Math.min(value, this.cfg.companyMaxPct) : Math.min(value, this.cfg.companyMaxFixed);
+  }
+
+  /** Accès aux courses d'un livreur (entreprise ou LI) */
+  async access(companyId: string | null): Promise<DriverAccess> {
+    if (!companyId) return { independent: false, team: null, blocker: 'Livreur sans entreprise : contactez LETO' };
+    const c = await this.companies.findOneBy({ id: companyId });
+    if (!c?.independent) return { independent: false, team: companyId, blocker: null };
+    const p = await this.profiles.findOneBy({ companyId });
+    return { independent: true, team: p?.affiliatedCompanyId ?? null, blocker: await this.blocker(companyId, p) };
+  }
+
+  /** Le livreur peut-il voir / prendre cette course ? (LI : jamais de paiement à la livraison) */
+  canTake(a: DriverAccess, d: { forIndependents: boolean; targetCompanyId: string | null }, hasCod: boolean) {
+    if (!a.independent) return !d.forIndependents && (!d.targetCompanyId || d.targetCompanyId === a.team);
+    if (a.blocker || hasCod) return false;
+    return d.forIndependents || !d.targetCompanyId || (!!a.team && d.targetCompanyId === a.team);
+  }
+
+  /** LI pouvant travailler : entreprise individuelle → entreprise de rattachement (null en transition) */
+  async working(): Promise<Map<string, string | null>> {
+    if (!this.cfg.enabled) return new Map();
+    const rows: { companyId: string; affiliatedCompanyId: string | null }[] = await this.db.query(
+      `SELECT "companyId", "affiliatedCompanyId" FROM independent_profiles
+        WHERE status = 'APPROVED' AND ("affiliatedCompanyId" IS NOT NULL OR "legacyUntil" > now())`,
+    );
+    return new Map(rows.map((r) => [r.companyId, r.affiliatedCompanyId]));
   }
 
   // ---------- Règles ----------
@@ -103,6 +176,17 @@ export class IndependentsService implements OnModuleInit {
     const next = { ...this.cfg };
     if (input.registrationOpen !== undefined) next.registrationOpen = !!input.registrationOpen;
     if (input.enabled !== undefined) next.enabled = !!input.enabled;
+    const num = (v: unknown, name: string, min: number, max: number) => {
+      const n = Number(v);
+      if (!Number.isFinite(n) || n < min || n > max) throw new BadRequestException(`${name} : valeur entre ${min} et ${max} attendue`);
+      return n;
+    };
+    if (input.companyMaxPct !== undefined) next.companyMaxPct = num(input.companyMaxPct, 'Commission entreprise maximum (%)', 0, 100);
+    if (input.companyMaxFixed !== undefined) next.companyMaxFixed = Math.round(num(input.companyMaxFixed, 'Commission entreprise maximum (F)', 0, 100_000));
+    if (input.earningsHoldHours !== undefined) next.earningsHoldHours = Math.round(num(input.earningsHoldHours, 'Délai avant retrait (heures)', 0, 720));
+    if (input.minWithdrawal !== undefined) next.minWithdrawal = Math.round(num(input.minWithdrawal, 'Retrait minimum (F)', 0, 1_000_000));
+    const daysChanged = input.transitionDays !== undefined && Number(input.transitionDays) !== next.transitionDays;
+    if (input.transitionDays !== undefined) next.transitionDays = Math.round(num(input.transitionDays, 'Période de transition (jours)', 0, 365));
     if (input.commissionType !== undefined || input.commissionValue !== undefined) {
       const type = input.commissionType ?? next.commissionType;
       const value = Number(input.commissionValue ?? next.commissionValue);
@@ -114,6 +198,10 @@ export class IndependentsService implements OnModuleInit {
     }
     await this.settings.save({ key: KEY, value: next, updatedBy: by });
     this.cfg = next;
+    // Transition prolongée ou raccourcie : nouvelle date pour les LI concernés
+    if (daysChanged) {
+      await this.db.query(`UPDATE independent_profiles SET "legacyUntil" = $1 WHERE "legacyUntil" IS NOT NULL`, [this.transitionEnd()]);
+    }
     // Désactivation générale : les LI ne voient plus les courses
     this.tracking.server?.to('drivers').emit('deliveries:changed', {});
     return this.config;
@@ -139,12 +227,14 @@ export class IndependentsService implements OnModuleInit {
   }
 
   /** Raison pour laquelle un LI ne peut pas travailler (null = il peut) */
-  async blocker(companyId: string): Promise<string | null> {
+  async blocker(companyId: string, profile?: IndependentProfile | null): Promise<string | null> {
     if (!this.cfg.enabled) return 'Les livreurs indépendants sont désactivés par LETO pour le moment';
-    const p = await this.profiles.findOneBy({ companyId });
+    const p = profile === undefined ? await this.profiles.findOneBy({ companyId }) : profile;
     switch (p?.status) {
       case IndependentStatus.APPROVED:
-        return null;
+        if (p.affiliatedCompanyId) return null;
+        if (p.legacyUntil && p.legacyUntil.getTime() > Date.now()) return null;
+        return 'Rattachez-vous à une entreprise de livraison pour recevoir des courses : acceptez une invitation dans l’app';
       case IndependentStatus.PENDING:
         return 'Votre dossier est en cours de vérification par LETO';
       case IndependentStatus.REJECTED:
@@ -252,7 +342,8 @@ export class IndependentsService implements OnModuleInit {
     const rows = await this.db.query(
       `SELECT p.id, p.status, p."vehicleType", p."vehiclePlate", p.commune, p."submittedAt", p."reviewedAt", p."reviewNote", p."createdAt",
               u.id AS "userId", u.name, u.phone, u.active, u."lastLocationAt",
-              c.id AS "companyId", c.credit,
+              c.id AS "companyId", c.credit, p."affiliatedCompanyId", p."legacyUntil",
+              (SELECT ac.name FROM companies ac WHERE ac.id = p."affiliatedCompanyId") AS "affiliatedCompanyName",
               (SELECT count(*)::int FROM deliveries d WHERE d."driverId" = u.id AND d.status = 'DELIVERED') AS completed
          FROM independent_profiles p
          JOIN users u ON u.id = p."userId"

@@ -78,6 +78,16 @@ export class IndependentProfile {
   @Column({ type: 'jsonb', default: () => "'[]'" })
   history: IndependentEvent[];
 
+  // ----- Rattachement à une entreprise de livraison (responsable du LI) -----
+  @Index()
+  @Column({ type: 'uuid', nullable: true }) affiliatedCompanyId: string | null;
+  @Column({ type: 'timestamptz', nullable: true }) affiliatedAt: Date | null;
+  /** Commission de l'entreprise acceptée par le LI (plafonnée par LETO au moment du calcul) */
+  @Column({ type: 'varchar', length: 7, nullable: true }) affCommissionType: 'PERCENT' | 'FIXED' | null;
+  @Column({ type: 'double precision', nullable: true }) affCommissionValue: number | null;
+  /** LI validé avant le rattachement obligatoire : peut travailler seul jusqu'à cette date */
+  @Column({ type: 'timestamptz', nullable: true }) legacyUntil: Date | null;
+
   @CreateDateColumn({ type: 'timestamptz' })
   createdAt: Date;
   @UpdateDateColumn({ type: 'timestamptz' })

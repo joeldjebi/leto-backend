@@ -107,6 +107,20 @@ export class Delivery {
   commissionRule: string | null;
   @Column({ type: 'timestamptz', nullable: true })
   commissionChargedAt: Date | null;
+  /** Livreur indépendant rattaché : entreprise responsable et sa commission (prélevée sur le solde du LI) */
+  @Column({ type: 'uuid', nullable: true })
+  affiliateCompanyId: string | null;
+  @Column({ type: 'int', nullable: true })
+  affiliateCommissionAmount: number | null;
+  @Column({ type: 'varchar', length: 7, nullable: true })
+  affiliateRuleType: 'PERCENT' | 'FIXED' | null;
+  @Column({ type: 'double precision', nullable: true })
+  affiliateRuleValue: number | null;
+  @Column({ type: 'timestamptz', nullable: true })
+  affiliateChargedAt: Date | null;
+  @Column({ type: 'int', default: 0 })
+  affiliateRefunded: number;
+
   /** Part remboursée après un litige donné au client */
   @Column({ type: 'int', default: 0 })
   commissionRefunded: number;

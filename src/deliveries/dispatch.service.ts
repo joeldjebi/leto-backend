@@ -1,6 +1,7 @@
 import { money } from '../countries/phone';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
+import { IndependentsService } from '../independents/independents.service';
 import { DataSource, In, LessThan, Repository } from 'typeorm';
 import { GeoService } from '../geo/geo.service';
 import { NotifyService } from '../notifications/notify.service';
@@ -51,6 +52,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
     private geo: GeoService,
     private push: NotifyService,
     private tracking: TrackingGateway,
+    private independents: IndependentsService,
   ) {}
 
   onModuleInit() {
@@ -146,12 +148,19 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
          LEFT JOIN independent_profiles p ON p."companyId" = c.id
         WHERE u.role = 'DRIVER' AND u.active AND c.active
           AND u."lastLocationAt" > $1 AND u."lastLat" IS NOT NULL
-          AND ($2::uuid IS NULL OR u."companyId" = $2)
-          AND (CASE WHEN $3 THEN c.independent AND p.status = 'APPROVED' ELSE NOT c.independent END)
+          AND (
+            -- Livreurs des entreprises (de l'entreprise visée, s'il y en a une)
+            (NOT c.independent AND NOT $3 AND ($2::uuid IS NULL OR u."companyId" = $2))
+            -- Livreurs indépendants validés : rattachés à l'entreprise visée, ou course ouverte (rattachés ou en transition) ; jamais de paiement à la livraison
+            OR ($7 AND c.independent AND p.status = 'APPROVED'
+                AND NOT EXISTS (SELECT 1 FROM delivery_stops cs WHERE cs."deliveryId" = $8 AND cs."codAmount" > 0)
+                AND (p."affiliatedCompanyId" = $2
+                     OR ($2::uuid IS NULL AND (p."affiliatedCompanyId" IS NOT NULL OR p."legacyUntil" > now()))))
+          )
           AND 6371 * 2 * asin(sqrt(power(sin(radians(u."lastLat" - $4) / 2), 2)
               + cos(radians($4)) * cos(radians(u."lastLat")) * power(sin(radians(u."lastLng" - $5) / 2), 2))) <= $6
         LIMIT 300`,
-      [new Date(Date.now() - ONLINE_MS), d.targetCompanyId, d.forIndependents, d.pickupLat, d.pickupLng, rules.dispatchRadiusKm],
+      [new Date(Date.now() - ONLINE_MS), d.targetCompanyId, d.forIndependents, d.pickupLat, d.pickupLng, rules.dispatchRadiusKm, this.independents.config.enabled, d.id],
     );
     const busy = await activeCourses(this.db, rows.map((r) => r.id));
     const pickup = { lat: d.pickupLat, lng: d.pickupLng };

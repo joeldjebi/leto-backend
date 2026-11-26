@@ -58,6 +58,9 @@ import { StorageService } from './storage/storage.service';
 import { TrackingGateway } from './tracking/tracking.gateway';
 import { User } from './users/user.entity';
 import { UsersController } from './users/users.controller';
+import { AffiliationInvite, CompanyEarning, Withdrawal } from './affiliations/affiliation.entities';
+import { AffiliationsController } from './affiliations/affiliations.controller';
+import { AffiliationsService } from './affiliations/affiliations.service';
 
 @Module({
   imports: [
@@ -69,12 +72,12 @@ import { UsersController } from './users/users.controller';
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert],
+      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert, AffiliationInvite, CompanyEarning, Withdrawal],
       // Crée / met à jour les tables au démarrage (DB_SYNC=false pour désactiver).
       // À remplacer par des migrations TypeORM quand le schéma sera stabilisé.
       synchronize: process.env.DB_SYNC !== 'false',
     }),
-    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert]),
+    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert, AffiliationInvite, CompanyEarning, Withdrawal]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
@@ -103,6 +106,7 @@ import { UsersController } from './users/users.controller';
     ProspectsController,
     UploadsController,
     UsersController,
+    AffiliationsController,
   ],
   providers: [
     AuthService,
@@ -126,6 +130,7 @@ import { UsersController } from './users/users.controller';
     CancelReasonsService,
     CountriesService,
     ProspectsService,
+    AffiliationsService,
     TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

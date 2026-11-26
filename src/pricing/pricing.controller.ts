@@ -129,15 +129,19 @@ export class PricingController {
     const lng = Number(lngStr);
     if (!Number.isFinite(lat) || !Number.isFinite(lng)) return [];
     const drivers = await this.users.find({
-      where: { role: Role.DRIVER, active: true, lastLocationAt: MoreThan(new Date(Date.now() - ONLINE_WINDOW_MS)), ...(companyId ? { companyId } : {}) },
+      where: { role: Role.DRIVER, active: true, lastLocationAt: MoreThan(new Date(Date.now() - ONLINE_WINDOW_MS)) },
       relations: { company: true },
     });
-    // Livreurs indépendants validés seulement quand le client les a choisis ; jamais mélangés aux entreprises
-    const li = independent === '1';
-    const approved = li ? await this.independents.approvedCompanyIds() : new Set<string>();
+    // LI pouvant travailler : avec les livreurs des entreprises (ceux de l'entreprise choisie si elle est précisée)
+    void independent;
+    const working = await this.independents.working();
     return drivers
       .filter((d) => d.company?.active !== false && d.lastLat != null && d.lastLng != null)
-      .filter((d) => (li ? approved.has(d.companyId!) : !d.company?.independent))
+      .filter((d) => {
+        if (!d.company?.independent) return !companyId || d.companyId === companyId;
+        if (!working.has(d.companyId!)) return false;
+        return !companyId || working.get(d.companyId!) === companyId;
+      })
       .map((d) => ({ d, km: haversineKm(lat, lng, d.lastLat!, d.lastLng!) }))
       .filter((x) => x.km <= 8)
       .sort((a, b) => a.km - b.km)
@@ -159,7 +163,8 @@ export class PricingController {
       where: { role: Role.DRIVER, active: true, lastLocationAt: MoreThan(new Date(Date.now() - ONLINE_WINDOW_MS)) },
       relations: { company: true },
     });
-    const online = drivers.filter((d) => d.company?.active !== false && !d.company?.independent && d.lastLat != null);
+    const working = await this.independents.working();
+    const online = drivers.filter((d) => d.company?.active !== false && (!d.company?.independent || working.has(d.companyId!)) && d.lastLat != null);
     if (!online.length || !Number.isFinite(lat) || !Number.isFinite(lng)) return { minutes: null, nearbyDrivers: 0 };
     const km = Math.min(...online.map((d) => haversineKm(lat, lng, d.lastLat, d.lastLng))) * 1.35;
     return {
