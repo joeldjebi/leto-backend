@@ -112,6 +112,10 @@ export class Delivery {
   /** Livreur indépendant rattaché : entreprise responsable et sa commission (prélevée sur le solde du LI) */
   @Column({ type: 'uuid', nullable: true })
   affiliateCompanyId: string | null;
+  /** Qui paie la livraison : l'expéditeur au départ (par défaut) ou les destinataires à la remise (boutiques) */
+  @Column({ type: 'varchar', length: 10, default: 'SENDER' })
+  feePaidBy: 'SENDER' | 'RECIPIENT';
+
   /** Course créée par un partenaire (API) : sa référence, clé d'idempotence, dernier état envoyé par webhook */
   @Index()
   @Column({ type: 'uuid', nullable: true })

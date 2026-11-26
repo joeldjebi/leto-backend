@@ -1,27 +1,6 @@
 import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
 import { Type } from 'class-transformer';
-import {
-  ArrayMaxSize,
-  ArrayMinSize,
-  IsArray,
-  ValidateIf,
-  IsUUID,
-  IsBoolean,
-  IsEnum,
-  IsIn,
-  IsInt,
-  IsLatitude,
-  IsLongitude,
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  Length,
-  Matches,
-  Max,
-  MaxLength,
-  Min,
-  ValidateNested,
-} from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, IsUUID, Length, Matches, Max, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
 import { DeliverySpeed, MAX_STOPS, VehicleType } from '../pricing/pricing';
 import { DisputeDecision, FailureReason } from './delivery-stop.entity';
 
@@ -44,6 +23,9 @@ export class StopDto {
   @Min(0)
   @Max(5_000_000)
   codAmount?: number;
+
+  /** API partenaire : colis remis seulement après confirmation du paiement de la marchandise */
+  @IsOptional() @IsBoolean() paymentRequired?: boolean;
 }
 
 export class CreateDeliveryDto {
@@ -76,6 +58,9 @@ export class CreateDeliveryDto {
 
   /** Garder l'ordre des arrêts tel que saisi (sinon ordre de passage optimisé) */
   @IsOptional() @IsBoolean() keepOrder?: boolean;
+
+  /** Boutique : qui paie la livraison (elle au départ, ou le destinataire à la remise) */
+  @IsOptional() @IsIn(['SENDER', 'RECIPIENT'], { message: 'Qui paie la livraison : l’expéditeur ou le destinataire' }) feePaidBy?: 'SENDER' | 'RECIPIENT';
 }
 
 export class ConfirmStopDto {

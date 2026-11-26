@@ -89,6 +89,16 @@ export class DeliveryStop {
   @Column({ length: 4, select: false })
   confirmationCode: string;
 
+  /** Livraison payée par le destinataire : sa part du prix, encaissée à la remise */
+  @Column({ type: 'int', default: 0 })
+  feeDue: number;
+
+  /** Colis remis seulement après confirmation du paiement de la marchandise (partenaire, ex. PI-SPI) */
+  @Column({ default: false })
+  paymentRequired: boolean;
+  @Column({ type: 'timestamptz', nullable: true })
+  paymentConfirmedAt: Date | null;
+
   @Column({ type: 'enum', enum: StopStatus, default: StopStatus.PENDING })
   status: StopStatus;
 

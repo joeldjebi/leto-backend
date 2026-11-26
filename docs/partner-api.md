@@ -44,11 +44,14 @@ En-tête facultatif mais recommandé : `Idempotency-Key: <votre identifiant uniq
   "stops": [
     { "lat": 5.36, "lng": -3.98, "address": "Cocody Angré", "recipientName": "Fatou", "recipientPhone": "0705060708", "codAmount": 12500, "packageDescription": "2 pagnes" }
   ],
-  "comment": "Appeler avant d'arriver"
+  "comment": "Appeler avant d'arriver",
+  "feePaidBy": "RECIPIENT"
 }
 ```
 - `reference` : votre numéro de commande, renvoyé partout.
-- `codAmount` : montant à encaisser auprès du destinataire (paiement à la livraison).
+- `codAmount` : montant à encaisser en espèces auprès du destinataire (paiement à la livraison).
+- `feePaidBy` : qui paie la livraison. `SENDER` (défaut) : payée au livreur au départ. `RECIPIENT` : chaque destinataire paie sa part au livreur, en espèces, à la remise (`feeDue` sur chaque arrêt) ; un colis non livré est payé par l'expéditeur au retour.
+- `paymentRequired` (par arrêt) : la marchandise est payée en ligne (ex. PI-SPI). Le livreur ne peut pas remettre le colis tant que vous n'avez pas confirmé le paiement (endpoint ci-dessous).
 - `companyId` (facultatif) : réserver la course à une entreprise de livraison précise.
 
 Réponse : la course (format ci-dessous). Elle part tout de suite vers les livreurs.
@@ -58,6 +61,9 @@ Une course, ou vos 50 dernières (filtrables par référence).
 
 ### `POST /deliveries/:id/cancel`
 `{ "reason": "Client injoignable" }`. Possible tant que le livreur n'a pas récupéré le colis ; des frais de déplacement peuvent s'appliquer si le livreur est déjà en route.
+
+### `POST /deliveries/:id/stops/:stopId/payment-confirmed`
+Confirme que la marchandise de cet arrêt est payée (par exemple : la boutique a reçu le virement PI-SPI). Le livreur est prévenu et peut remettre le colis. Webhook : `stop.payment_confirmed`.
 
 ### `GET /statement?from=2026-12-01&to=2026-12-31`
 Relevé des montants encaissés à la livraison : `codCollected`, `codRemitted` (déjà reversés), `codPending`, `stopsDelivered`, `stopsFailed`.
@@ -71,7 +77,8 @@ Relevé des montants encaissés à la livraison : `codCollected`, `codRemitted` 
   "trackingUrl": "https://leto.performx.online/#/suivi/…",
   "pickup": { "address": "…", "lat": 5.355, "lng": -4.02, "phone": "…" },
   "driver": { "name": "Bakary", "phone": "…", "vehicleType": "MOTO", "plate": "…", "position": { "lat": 5.358, "lng": -4.0, "at": "…" } },
-  "stops": [{ "id": "…", "position": 0, "status": "PENDING", "codAmount": 12500, "confirmationCode": "4821", "deliveredAt": null, "failureReason": null, "codRemittedAt": null }],
+  "feePaidBy": "RECIPIENT",
+  "stops": [{ "id": "…", "position": 0, "status": "PENDING", "codAmount": 0, "feeDue": 1500, "paymentRequired": true, "paymentConfirmedAt": null, "confirmationCode": "4821", "deliveredAt": null, "failureReason": null, "codRemittedAt": null }],
   "returnRequired": false, "returnedAt": null, "acceptedAt": "…", "pickedUpAt": "…", "deliveredAt": null, "createdAt": "…"
 }
 ```
@@ -90,6 +97,7 @@ LETO envoie un `POST` JSON à votre adresse à chaque événement :
 | `delivery.accepted` | Un livreur l'a acceptée |
 | `delivery.picked_up` | Colis récupéré |
 | `stop.delivered` / `stop.failed` / `stop.cancelled` | Un arrêt est livré, en échec ou annulé (`stopId`) |
+| `stop.payment_confirmed` | Paiement de la marchandise confirmé (`stopId`) |
 | `delivery.completed` | Tous les arrêts traités |
 | `delivery.returned` | Colis non livrés rapportés au départ |
 | `delivery.cancelled` | Course annulée |

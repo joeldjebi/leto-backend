@@ -1,7 +1,7 @@
 import { Body, CanActivate, Controller, createParamDecorator, ExecutionContext, Get, Headers, HttpCode, Injectable, NotFoundException, Param, ParseUUIDPipe, Post, Query, UseGuards } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Type } from 'class-transformer';
-import { ArrayMaxSize, ArrayMinSize, IsArray, IsEnum, IsInt, IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
+import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, IsUUID, Matches, Max, MaxLength, Min, ValidateNested } from 'class-validator';
 import { Repository } from 'typeorm';
 import { Public } from '../common/decorators';
 import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
@@ -54,6 +54,8 @@ class StopDto extends PointDto {
   @IsOptional() @IsString() @MaxLength(300) packageDescription?: string;
   /** Montant à encaisser auprès du destinataire (FCFA) */
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(5_000_000) codAmount?: number;
+  /** Colis remis seulement après confirmation du paiement de la marchandise (POST …/payment-confirmed) */
+  @IsOptional() @IsBoolean() paymentRequired?: boolean;
 }
 class CreateDto {
   /** Référence de la commande chez le partenaire (renvoyée dans les webhooks) */
@@ -65,6 +67,8 @@ class CreateDto {
   @ValidateNested() @Type(() => PickupDto) pickup: PickupDto;
   @IsArray() @ArrayMinSize(1) @ArrayMaxSize(MAX_STOPS) @ValidateNested({ each: true }) @Type(() => StopDto) stops: StopDto[];
   @IsOptional() @IsString() @MaxLength(500) comment?: string;
+  /** Qui paie la livraison : le partenaire / la boutique au départ (SENDER, défaut) ou le destinataire à la remise */
+  @IsOptional() @IsIn(['SENDER', 'RECIPIENT']) feePaidBy?: 'SENDER' | 'RECIPIENT';
 }
 class CancelDto {
   @IsOptional() @IsString() @MaxLength(300) reason?: string;
@@ -145,8 +149,9 @@ export class PartnerApiController {
         pickupPhone: dto.pickup.phone,
         pickupContactName: dto.pickup.contactName,
         pickupDetails: dto.pickup.details,
-        stops: dto.stops.map((s) => ({ lat: s.lat, lng: s.lng, address: s.address, recipientName: s.recipientName, recipientPhone: s.recipientPhone, details: s.details, packageDescription: s.packageDescription, codAmount: s.codAmount })),
+        stops: dto.stops.map((s) => ({ lat: s.lat, lng: s.lng, address: s.address, recipientName: s.recipientName, recipientPhone: s.recipientPhone, details: s.details, packageDescription: s.packageDescription, codAmount: s.codAmount, paymentRequired: s.paymentRequired })),
         courierComment: dto.comment,
+        feePaidBy: dto.feePaidBy,
       },
       { companyId: dto.companyId ?? null, partner: { id: p.id, reference: dto.reference?.trim() || null, idemKey: key } },
     );
@@ -175,6 +180,15 @@ export class PartnerApiController {
     if (!d) throw new NotFoundException('Course introuvable');
     await this.deliveries.cancel(p.userId, id, p.name, dto.reason?.trim() || null);
     return this.partners.view(await this.deliveries.oneForClient(p.userId, id));
+  }
+
+  /** Paiement de la marchandise confirmé (ex. PI-SPI reçu par la boutique) : le livreur peut remettre le colis */
+  @Post('deliveries/:id/stops/:stopId/payment-confirmed')
+  @HttpCode(200)
+  async paymentConfirmed(@CurrentPartner() p: Partner, @Param('id', ParseUUIDPipe) id: string, @Param('stopId', ParseUUIDPipe) stopId: string) {
+    const d = await this.repo.findOneBy({ id, partnerId: p.id });
+    if (!d) throw new NotFoundException('Course introuvable');
+    return this.partners.view(await this.deliveries.confirmStopPayment(p.userId, id, stopId));
   }
 
   /** Relevé des encaissements à la livraison (reversés ou non) */

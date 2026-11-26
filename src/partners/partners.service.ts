@@ -202,6 +202,7 @@ export class PartnersService implements OnModuleInit, OnModuleDestroy {
       speed: d.speed,
       price: d.price + (d.extraFees ?? 0),
       currency: d.currency,
+      feePaidBy: d.feePaidBy,
       distanceKm: d.distanceKm,
       durationMin: d.durationMin,
       trackingUrl: d.trackingToken ? `${trackingBase()}${d.trackingToken}` : null,
@@ -223,6 +224,9 @@ export class PartnersService implements OnModuleInit, OnModuleDestroy {
         recipientName: s.recipientName,
         recipientPhone: s.recipientPhone,
         codAmount: s.codAmount,
+        feeDue: s.feeDue,
+        paymentRequired: s.paymentRequired,
+        paymentConfirmedAt: s.paymentConfirmedAt,
         // Code à donner au destinataire (le livreur le demande à la remise)
         confirmationCode: s.confirmationCode,
         deliveredAt: s.deliveredAt,
@@ -265,7 +269,10 @@ export class PartnersService implements OnModuleInit, OnModuleDestroy {
     if (!d?.partnerId) return;
     const before = d.partnerSnapshot ?? {};
     const now: Record<string, string> = { status: d.status, returned: d.returnedAt ? 'yes' : 'no' };
-    for (const s of d.stops ?? []) now[`stop:${s.id}`] = s.status;
+    for (const s of d.stops ?? []) {
+      now[`stop:${s.id}`] = s.status;
+      if (s.paymentConfirmedAt) now[`pay:${s.id}`] = 'yes';
+    }
     const events: { event: string; stopId?: string }[] = [];
     if (before.status !== now.status) {
       const map: Record<string, string> = { PENDING: 'delivery.created', ACCEPTED: 'delivery.accepted', PICKED_UP: 'delivery.picked_up', DELIVERED: 'delivery.completed', CANCELLED: 'delivery.cancelled' };
@@ -276,6 +283,7 @@ export class PartnersService implements OnModuleInit, OnModuleDestroy {
       if (before[k] === now[k] || s.status === 'PENDING') continue;
       events.push({ event: `stop.${s.status.toLowerCase()}`, stopId: s.id });
     }
+    for (const s of d.stops ?? []) if (now[`pay:${s.id}`] && !before[`pay:${s.id}`]) events.push({ event: 'stop.payment_confirmed', stopId: s.id });
     if (before.returned !== 'yes' && now.returned === 'yes') events.push({ event: 'delivery.returned' });
     if (!events.length) return;
     await this.deliveries.update(d.id, { partnerSnapshot: now });

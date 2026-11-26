@@ -9,6 +9,7 @@ import { SavedAddress } from '../addresses/saved-address.entity';
 import { BillingService } from '../billing/billing.service';
 import { IndependentsService } from '../independents/independents.service';
 import { closedText, openNow } from '../companies/opening';
+import { syncFeeShares } from './fee-shares';
 import { NotifyService } from '../notifications/notify.service';
 import { AuthUser } from '../common/decorators';
 import { Company } from '../companies/company.entity';
@@ -21,7 +22,7 @@ import { PlanService } from './plan.service';
 import { computePrice, DeliverySpeed, stopDiscountPct, VehicleType } from '../pricing/pricing';
 import { SurchargeService } from '../pricing/surcharge.service';
 import { TrackingGateway } from '../tracking/tracking.gateway';
-import { Role, User } from '../users/user.entity';
+import { AccountType, Role, User } from '../users/user.entity';
 import { SettingsService } from '../settings/settings.service';
 import { FAIL_RADIUS_M, LOCATION_MAX_AGE_MS } from './absence';
 import { CompanyOrderDto, CreateDeliveryDto, FailStopDto, FollowUpDto, HelpAnswerDto, RateDto } from './deliveries.dto';
@@ -130,9 +131,20 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     const inAbidjan = allInGrandAbidjan([pickup, ...ordered]);
     const sur = this.surcharge.context([pickup, ...ordered]);
 
+    // Livraison payée par le destinataire : réservé aux boutiques (comptes « boutique » et partenaires)
+    const feePaidBy = dto.feePaidBy ?? 'SENDER';
+    if (feePaidBy === 'RECIPIENT') {
+      const client = await this.users.findOneBy({ id: clientId });
+      if (client?.accountType !== AccountType.SHOP) throw new BadRequestException('Seules les boutiques peuvent faire payer la livraison au destinataire');
+    }
+    const price = opts.priceOverride ?? computePrice(grid, route.distanceKm, vehicleType, speed, ordered.length, codStops, { inAbidjan, surchargePct: sur.pct });
+    // Part de chaque destinataire : prix réparti à parts égales (le reste sur le premier arrêt)
+    const share = (position: number) =>
+      feePaidBy !== 'RECIPIENT' ? 0 : Math.floor(price / ordered.length) + (position === 0 ? price % ordered.length : 0);
+
     // companyId du formulaire = entreprise choisie (cible), à ne pas confondre avec l'entreprise du livreur
-    const { companyId: _target, keepOrder: _keep, forIndependents: _li, ...fields } = dto;
-    void _target; void _keep; void _li;
+    const { companyId: _target, keepOrder: _keep, forIndependents: _li, feePaidBy: _payer, ...fields } = dto;
+    void _target; void _keep; void _li; void _payer;
     const delivery = await this.repo.save(
       this.repo.create({
         currency: Countries.operating.currencyCode,
@@ -143,7 +155,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
         pickupCommune: nearestCommune(dto.pickupLat, dto.pickupLng),
         distanceKm: Math.round(route.distanceKm * 10) / 10,
         durationMin: route.durationMin,
-        price: opts.priceOverride ?? computePrice(grid, route.distanceKm, vehicleType, speed, ordered.length, codStops, { inAbidjan, surchargePct: sur.pct }),
+        price,
+        feePaidBy,
         pricingDetails: { inAbidjan, surchargePct: sur.pct, surcharges: sur.items, stopDiscountPct: stopDiscountPct(grid, ordered.length) },
         returnCode: randomInt(0, 10000).toString().padStart(4, '0'),
         trackingToken: randomBytes(16).toString('hex'),
@@ -159,6 +172,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
             ...s,
             position,
             codAmount: s.codAmount ?? 0,
+            feeDue: share(position),
+            paymentRequired: s.paymentRequired === true,
             commune: nearestCommune(s.lat, s.lng),
             confirmationCode: randomInt(0, 10000).toString().padStart(4, '0'),
           }),
@@ -551,6 +566,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     const listPrice = computePrice(grid, d.distanceKm ?? route.distanceKm, d.vehicleType, d.speed, listed.length, codStops, zone(listed));
     const price = Math.min(d.price, d.price > listPrice ? Math.ceil((computed * d.price) / listPrice / 50) * 50 : computed);
     await this.repo.update(d.id, { price, distanceKm: Math.round(route.distanceKm * 10) / 10, durationMin: route.durationMin });
+    await syncFeeShares(this.dataSource, d.id);
     await this.billing.recompute(d.id);
   }
 
@@ -804,9 +820,27 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     if (this.settings.pricing.deliveryCodeEnabled !== false && stop.confirmationCode !== code) {
       throw new BadRequestException(code ? 'Code incorrect' : 'Code du destinataire obligatoire');
     }
+    if (stop.paymentRequired && !stop.paymentConfirmedAt) {
+      throw new BadRequestException('Paiement de la marchandise pas encore confirmé par le vendeur : patientez avant de remettre le colis');
+    }
     await this.stops.update(stopId, { status: StopStatus.DELIVERED, deliveredAt: new Date() });
     this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Colis livré', body: `Livré à ${stop.recipientName}`, deliveryId: id });
     return this.afterStop(id);
+  }
+
+  /** Partenaire : paiement de la marchandise confirmé, le livreur peut remettre le colis */
+  async confirmStopPayment(clientId: string, id: string, stopId: string) {
+    const d = await this.oneForClient(clientId, id);
+    const stop = d.stops.find((s) => s.id === stopId);
+    if (!stop) throw new NotFoundException('Arrêt introuvable');
+    if (!stop.paymentRequired) throw new BadRequestException('Cet arrêt n’attend pas de confirmation de paiement');
+    if (stop.status !== StopStatus.PENDING) throw new BadRequestException('Arrêt déjà traité');
+    if (!stop.paymentConfirmedAt) await this.stops.update(stopId, { paymentConfirmedAt: new Date() });
+    if (d.driverId) {
+      this.tracking.emitToUser(d.driverId, 'deliveries:changed', {});
+      this.push.send([d.driverId], 'UPDATED', { title: 'Paiement confirmé', body: `Vous pouvez remettre le colis à ${stop.recipientName}`, deliveryId: id });
+    }
+    return this.notify(await this.findOne(id, true));
   }
 
   /**

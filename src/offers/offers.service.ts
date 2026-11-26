@@ -1,3 +1,4 @@
+import { syncFeeShares } from '../deliveries/fee-shares';
 import { money } from '../countries/phone';
 import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
@@ -148,6 +149,7 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
         .execute();
       if (!res.affected) throw new ConflictException('La course n’est plus disponible');
       await m.update(Offer, { id: offer.id }, { status: OfferStatus.ACCEPTED });
+      await syncFeeShares(m, offer.deliveryId);
       const rest = await m.find(Offer, { where: { deliveryId: offer.deliveryId, status: OfferStatus.PENDING } });
       await m.update(Offer, { deliveryId: offer.deliveryId, status: OfferStatus.PENDING }, { status: OfferStatus.REJECTED });
       return rest;
