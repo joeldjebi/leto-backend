@@ -18,14 +18,25 @@ const ONLINE_MS = 10 * 60_000;
 
 type Rules = Pick<
   PricingGrid,
-  'dispatchRadiusKm' | 'busyRadiusKm' | 'routeCorridorM' | 'maxActiveCourses' | 'standardMaxActiveCourses' | 'standardMaxDetourMin' | 'orderPopupSec' | 'dispatchWaveSize' | 'dispatchWaveSec'
+  'dispatchRadiusKm' | 'busyRadiusKm' | 'routeCorridorM' | 'maxActiveCourses' | 'standardMaxActiveCourses' | 'standardMaxDetourMin' | 'orderPopupSec' | 'dispatchWaveSize' | 'dispatchWaveSec' | 'ratingPriority'
 >;
+
+/**
+ * Note du livreur → distance « ressentie » : 5★ ≈ −10 %, 4,5★ neutre, 3★ ≈ +30 % (plafonné).
+ * Moins de 5 notes : neutre (les nouveaux ne sont pas pénalisés).
+ */
+export function ratingFactor(enabled: boolean, avg: number | null, count: number) {
+  if (!enabled || avg == null || count < 5) return 1;
+  return Math.min(1.3, Math.max(0.9, 1 + (4.5 - Number(avg)) * 0.2));
+}
 
 interface Candidate {
   id: string;
   companyId: string | null;
   me: LatLng;
   km: number;
+  /** Distance corrigée par la note du livreur (ordre des vagues) */
+  score: number;
   courses: ActiveCourse[];
   match: Match | null;
 }
@@ -142,21 +153,24 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
 
   /** Livreurs pouvant prendre la course, du plus proche au plus loin */
   private async candidates(d: Delivery, rules: Rules): Promise<Candidate[]> {
-    const rows: { id: string; companyId: string; lastLat: number; lastLng: number; routePlan: string[] | null }[] = await this.db.query(
-      `SELECT u.id, u."companyId", u."lastLat", u."lastLng", u."routePlan" FROM users u
+    const rows: { id: string; companyId: string; lastLat: number; lastLng: number; routePlan: string[] | null; ratingAvg: number | null; ratingCount: number }[] = await this.db.query(
+      `SELECT u.id, u."companyId", u."lastLat", u."lastLng", u."routePlan", u."ratingAvg", u."ratingCount" FROM users u
          JOIN companies c ON c.id = u."companyId"
          LEFT JOIN independent_profiles p ON p."companyId" = c.id
         WHERE u.role = 'DRIVER' AND u.active AND c.active
           AND u."lastLocationAt" > $1 AND u."lastLat" IS NOT NULL
           AND (
             -- Livreurs des entreprises (de l'entreprise visée, s'il y en a une)
-            (NOT c.independent AND NOT $3 AND ($2::uuid IS NULL OR u."companyId" = $2))
+            -- (commande ouverte : seulement si LETO laisse l'entreprise voir les commandes ouvertes)
+            (NOT c.independent AND NOT $3 AND (($2::uuid IS NULL AND c."openOrders") OR u."companyId" = $2))
             -- Livreurs indépendants validés : rattachés à l'entreprise visée, ou course ouverte (rattachés ou en transition) ; paiement à la livraison si leur entreprise l'autorise
             OR ($7 AND c.independent AND p.status = 'APPROVED' AND ${DOCS_VALID_SQL('p')}
                 AND (NOT EXISTS (SELECT 1 FROM delivery_stops cs WHERE cs."deliveryId" = $8 AND cs."codAmount" > 0)
                      OR EXISTS (SELECT 1 FROM companies ac WHERE ac.id = p."affiliatedCompanyId" AND ac."liCodAllowed"))
                 AND (p."affiliatedCompanyId" = $2
-                     OR ($2::uuid IS NULL AND (p."affiliatedCompanyId" IS NOT NULL OR p."legacyUntil" > now()))))
+                     OR ($2::uuid IS NULL AND (
+                          EXISTS (SELECT 1 FROM companies oc WHERE oc.id = p."affiliatedCompanyId" AND oc."liOpenOrders")
+                          OR (p."affiliatedCompanyId" IS NULL AND p."legacyUntil" > now())))))
           )
           AND 6371 * 2 * asin(sqrt(power(sin(radians(u."lastLat" - $4) / 2), 2)
               + cos(radians($4)) * cos(radians(u."lastLat")) * power(sin(radians(u."lastLng" - $5) / 2), 2))) <= $6
@@ -174,10 +188,11 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
         match = matchBusyDriver(me, courses, pickup, rules, await this.roadPath(me, courses, r.routePlan), d.speed);
         if (!match) continue;
       }
-      out.push({ id: r.id, companyId: r.companyId, me, km: Math.round(distanceM(me, pickup) / 100) / 10, courses, match });
+      const km = Math.round(distanceM(me, pickup) / 100) / 10;
+      out.push({ id: r.id, companyId: r.companyId, me, km, score: km * ratingFactor(rules.ratingPriority, r.ratingAvg, r.ratingCount), courses, match });
     }
-    // Plus proche d'abord ; à distance égale, le livreur pour qui la course est sur son trajet
-    return out.sort((a, b) => a.km - b.km || (a.match?.kind === 'ROUTE' ? -1 : 0) - (b.match?.kind === 'ROUTE' ? -1 : 0));
+    // Plus proche d'abord (distance corrigée par la note) ; à égalité, le livreur pour qui la course est sur son trajet
+    return out.sort((a, b) => a.score - b.score || (a.match?.kind === 'ROUTE' ? -1 : 0) - (b.match?.kind === 'ROUTE' ? -1 : 0));
   }
 
   /**

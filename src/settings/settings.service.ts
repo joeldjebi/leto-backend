@@ -147,6 +147,7 @@ export class SettingsService implements OnModuleInit {
     if (typeof input.returnCodeEnabled === 'boolean') out.returnCodeEnabled = input.returnCodeEnabled;
     if (typeof input.deliveryCodeEnabled === 'boolean') out.deliveryCodeEnabled = input.deliveryCodeEnabled;
     if (typeof input.preCallRequired === 'boolean') out.preCallRequired = input.preCallRequired;
+    if (typeof input.ratingPriority === 'boolean') out.ratingPriority = input.ratingPriority;
     if (input.cancelFeeType === 'PERCENT' || input.cancelFeeType === 'FIXED') out.cancelFeeType = input.cancelFeeType;
     if (typeof input.rev === 'number') out.rev = input.rev;
     for (const k of ['multiStopDiscountPct', 'multiStopDiscountMaxPct'] as const) {
@@ -161,7 +162,7 @@ export class SettingsService implements OnModuleInit {
       if (Array.isArray(sc.rushRanges)) out.surcharges.rushRanges = sc.rushRanges.map((x) => String(x).trim()).filter(Boolean);
       if (Array.isArray(sc.floodCommunes)) out.surcharges.floodCommunes = sc.floodCommunes.map((x) => String(x).trim()).filter(Boolean);
     }
-    for (const k of ['codFee', 'extraStopFee', 'maxStops', 'absenceWaitMin', 'cancelFeeValue', 'cancelFreeMinutes', 'cancelRequestAutoMin', 'returnFeePct', 'retryFeePct', 'followUpAutoMin', 'failAlertPct', 'orderExpiryMin', 'dispatchRadiusKm', 'busyRadiusKm', 'routeCorridorM', 'maxActiveCourses', 'standardMaxActiveCourses', 'standardMaxDetourMin', 'orderPopupSec', 'dispatchWaveSize', 'dispatchWaveSec'] as const) {
+    for (const k of ['codFee', 'extraStopFee', 'maxStops', 'absenceWaitMin', 'cancelFeeValue', 'cancelFreeMinutes', 'cancelRequestAutoMin', 'returnFeePct', 'retryFeePct', 'followUpAutoMin', 'failAlertPct', 'ratingWindow', 'ratingAlertBelow', 'orderExpiryMin', 'dispatchRadiusKm', 'busyRadiusKm', 'routeCorridorM', 'maxActiveCourses', 'standardMaxActiveCourses', 'standardMaxDetourMin', 'orderPopupSec', 'dispatchWaveSize', 'dispatchWaveSec'] as const) {
       if (input[k] !== undefined) out[k] = input[k] as number;
     }
     return out;
@@ -204,6 +205,9 @@ export class SettingsService implements OnModuleInit {
     num(g.retryFeePct, 'Nouvelle tentative (% du prix de l’arrêt)', 0, 100);
     num(g.followUpAutoMin, 'Délai de choix après un échec (min)', 1, 120);
     num(g.failAlertPct, 'Alerte taux d’échec livreur (%)', 0, 100);
+    num(g.ratingWindow, 'Notes prises en compte (dernières courses notées)', 5, 200);
+    num(g.ratingAlertBelow, 'Alerte note moyenne (0 = jamais)', 0, 5);
+    if (typeof g.ratingPriority !== 'boolean') throw new BadRequestException('Priorité aux livreurs bien notés : vrai ou faux');
     if (typeof g.preCallRequired !== 'boolean') throw new BadRequestException('Appel avant départ : vrai ou faux');
     num(g.orderExpiryMin, 'Expiration des commandes sans livreur (min, 0 = jamais)', 0, 1440);
     num(g.dispatchRadiusKm, 'Rayon des nouvelles commandes (km)', 1, 50);

@@ -2,6 +2,7 @@ import {
   Column,
   CreateDateColumn,
   Entity,
+  JoinColumn,
   ManyToOne,
   OneToMany,
   PrimaryGeneratedColumn,
@@ -110,6 +111,10 @@ export class Delivery {
   /** Livreur indépendant rattaché : entreprise responsable et sa commission (prélevée sur le solde du LI) */
   @Column({ type: 'uuid', nullable: true })
   affiliateCompanyId: string | null;
+  /** Entreprise de rattachement (affichée au client : « Livreur indépendant · Express Cocody ») */
+  @ManyToOne(() => Company, { nullable: true, createForeignKeyConstraints: false })
+  @JoinColumn({ name: 'affiliateCompanyId' })
+  affiliateCompany: Company | null;
   @Column({ type: 'int', nullable: true })
   affiliateCommissionAmount: number | null;
   @Column({ type: 'varchar', length: 7, nullable: true })

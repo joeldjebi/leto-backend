@@ -64,6 +64,9 @@ export class User {
   ratingAvg: number | null;
   @Column({ type: 'int', default: 0 })
   ratingCount: number;
+  /** Dernière alerte « note basse » envoyée au back-office */
+  @Column({ type: 'timestamptz', nullable: true })
+  ratingAlertAt: Date | null;
 
   /** Dernière position GPS connue (livreurs) — mise à jour en temps réel */
   @Column({ type: 'double precision', nullable: true })

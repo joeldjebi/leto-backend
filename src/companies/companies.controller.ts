@@ -3,7 +3,7 @@ import { Body, Controller, Delete, Get, Param, ParseBoolPipe, ParseUUIDPipe, Pat
 import { AuthUser, CurrentUser, Public, Roles } from '../common/decorators';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { Role } from '../users/user.entity';
-import { ApplyCompanyDto, CreateCompanyDto, DriverDto, DriverVehicleDto, ReviewNoteDto, UpdateCompanyDto, VehiclesDto } from './companies.dto';
+import { ApplyCompanyDto, AvailabilityDto, CreateCompanyDto, DriverDto, OrderAccessDto, DriverVehicleDto, ReviewNoteDto, UpdateCompanyDto, VehiclesDto } from './companies.dto';
 import { CompaniesService } from './companies.service';
 
 @Controller('companies')
@@ -88,6 +88,26 @@ export class CompaniesController {
   @Roles(Role.COMPANY)
   resetPricing(@CurrentUser() user: AuthUser) {
     return this.service.setPricing(user.companyId, null);
+  }
+
+  // ----- Gérant : ouverture aux commandes des clients -----
+  @Get('me/availability')
+  @Roles(Role.COMPANY)
+  availability(@CurrentUser() user: AuthUser) {
+    return this.service.availability(user.companyId);
+  }
+
+  @Put('me/availability')
+  @Roles(Role.COMPANY)
+  setAvailability(@CurrentUser() user: AuthUser, @Body() body: AvailabilityDto) {
+    return this.service.setAvailability(user.companyId, body);
+  }
+
+  // ----- SA : accès de ses livreurs aux commandes ouvertes -----
+  @Put(':id/order-access')
+  @Roles(Role.SUPER_ADMIN)
+  setOrderAccess(@Param('id', ParseUUIDPipe) id: string, @Body() body: OrderAccessDto) {
+    return this.service.setOrderAccess(id, body);
   }
 
   // ----- Clients : annuaire des entreprises de livraison -----

@@ -8,6 +8,7 @@ import { DataSource, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { SavedAddress } from '../addresses/saved-address.entity';
 import { BillingService } from '../billing/billing.service';
 import { IndependentsService } from '../independents/independents.service';
+import { closedText, openNow } from '../companies/opening';
 import { NotifyService } from '../notifications/notify.service';
 import { AuthUser } from '../common/decorators';
 import { Company } from '../companies/company.entity';
@@ -83,6 +84,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       .leftJoinAndSelect('d.client', 'client')
       .leftJoinAndSelect('d.driver', 'driver')
       .leftJoinAndSelect('d.company', 'company')
+      .leftJoinAndSelect('d.affiliateCompany', 'affiliateCompany')
       .leftJoinAndSelect('d.stops', 'stop')
       .orderBy('d.createdAt', 'DESC')
       .addOrderBy('stop.position', 'ASC');
@@ -107,6 +109,8 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       company = await this.companies.findOneBy({ id: opts.companyId });
       // Abonnée, en essai gratuit, ou abonnements désactivés par LETO
       if (!company?.active || !this.billing.subscribed(company)) throw new BadRequestException('Cette entreprise ne prend pas de commandes pour le moment');
+      // Fermée (interrupteur ou horaires) : plus de commande de client à son nom ; ses propres saisies restent possibles
+      if (opts.source !== 'COMPANY' && !openNow(company)) throw new BadRequestException(closedText(company.name, company));
     }
     const grid = this.settings.gridFor(company);
     const vehicleType = dto.vehicleType ?? VehicleType.MOTO;
@@ -422,6 +426,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       [d.driverId],
     );
     await this.users.update(d.driverId, { ratingAvg: avg == null ? null : Math.round(avg * 100) / 100, ratingCount: count });
+    this.checkRating(d.driverId, this.officeOf(d), !!d.company?.independent).catch((e) => this.logger.warn(`Alerte note : ${e}`));
     return this.oneForClient(clientId, id);
   }
 
@@ -667,10 +672,10 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       .where('d.status = :s', { s: DeliveryStatus.PENDING })
       .andWhere(
         access.independent
-          ? `(d.forIndependents OR d.targetCompanyId IS NULL OR d.targetCompanyId = :team)
+          ? `(((d.forIndependents OR d.targetCompanyId IS NULL) AND :open) OR d.targetCompanyId = :team)
              AND (:cod OR NOT EXISTS (SELECT 1 FROM delivery_stops cs WHERE cs."deliveryId" = d.id AND cs."codAmount" > 0))`
-          : 'NOT d.forIndependents AND (d.targetCompanyId IS NULL OR d.targetCompanyId = :team)',
-        { team: access.team ?? '00000000-0000-0000-0000-000000000000', cod: access.cod },
+          : 'NOT d.forIndependents AND ((d.targetCompanyId IS NULL AND :open) OR d.targetCompanyId = :team)',
+        { team: access.team ?? '00000000-0000-0000-0000-000000000000', cod: access.cod, open: access.open },
       )
       .andWhere('(d.assignedDriverId IS NULL OR d.assignedDriverId = :me)', { me: user.sub })
       .orderBy('d.createdAt', 'ASC')
@@ -1189,6 +1194,65 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
 
   /** Taux d'échec d'un livreur sur 7 jours : alerte au back-office au-delà du seuil (une fois par jour) */
   private failAlerted = new Map<string, number>();
+  /** Notes récentes d'un livreur (fenêtre du SA) : moyenne, notes à 1-2★ sur les 10 dernières */
+  private async recentRatings(driverId: string) {
+    const [r] = await this.repo.query(
+      `SELECT avg(rating)::float AS avg, count(*)::int AS n,
+              (SELECT count(*)::int FROM (SELECT rating FROM deliveries WHERE "driverId" = $1 AND rating IS NOT NULL ORDER BY "ratedAt" DESC LIMIT 10) t WHERE t.rating <= 2) AS low
+         FROM (SELECT rating FROM deliveries WHERE "driverId" = $1 AND rating IS NOT NULL ORDER BY "ratedAt" DESC LIMIT $2) w`,
+      [driverId, this.settings.pricing.ratingWindow],
+    );
+    return { avg: r.avg == null ? null : Math.round(Number(r.avg) * 10) / 10, n: Number(r.n), low: Number(r.low) };
+  }
+
+  /** Après une note : alerte à l'entreprise (et au SA pour un LI), suspension automatique d'un LI si activée */
+  private async checkRating(driverId: string, companyId: string | null, independent: boolean) {
+    const g = this.settings.pricing;
+    const r = await this.recentRatings(driverId);
+    if (r.avg == null) return;
+    if (independent && r.n >= g.ratingWindow && (await this.independents.autoSuspend(driverId, r.avg, r.n))) return;
+    const lowAvg = g.ratingAlertBelow > 0 && r.n >= Math.min(10, g.ratingWindow) && r.avg < g.ratingAlertBelow;
+    const lowMany = r.low >= 3;
+    if (!lowAvg && !lowMany) return;
+    const driver = await this.users.findOneBy({ id: driverId });
+    if (!driver || (driver.ratingAlertAt && Date.now() - driver.ratingAlertAt.getTime() < 7 * 86_400_000)) return;
+    await this.users.update(driverId, { ratingAlertAt: new Date() });
+    this.push.office({ companyId, sa: independent }, 'RATING', {
+      title: 'Note basse d’un livreur',
+      body: lowAvg
+        ? `${driver.name} : ${r.avg.toFixed(1)}★ en moyenne sur ses ${r.n} dernières courses notées. Consultez les avis des clients.`
+        : `${driver.name} : ${r.low} notes à 1 ou 2★ sur ses 10 dernières courses notées. Consultez les avis des clients.`,
+      link: independent ? '/independants' : `/livreurs/${driverId}`,
+    });
+  }
+
+  /** Avis des clients sur un livreur : entreprise (ses livreurs, ses LI rattachés) ou SA */
+  async driverRatings(user: AuthUser, driverId: string) {
+    const driver = await this.users.findOne({ where: { id: driverId }, relations: { company: true } });
+    if (!driver || driver.role !== Role.DRIVER) throw new NotFoundException('Livreur introuvable');
+    if (user.role === Role.COMPANY && driver.companyId !== user.companyId) {
+      const [aff] = await this.dataSource.query(`SELECT 1 FROM independent_profiles WHERE "companyId" = $1 AND "affiliatedCompanyId" = $2`, [driver.companyId, user.companyId]);
+      if (!aff) throw new NotFoundException('Livreur introuvable');
+    }
+    const recent = await this.recentRatings(driverId);
+    const [dist] = await this.repo.query(
+      `SELECT ${[1, 2, 3, 4, 5].map((s) => `count(*) FILTER (WHERE rating = ${s})::int AS "s${s}"`).join(', ')} FROM deliveries WHERE "driverId" = $1 AND rating IS NOT NULL`,
+      [driverId],
+    );
+    const items = await this.repo.query(
+      `SELECT d.id AS "deliveryId", d.rating, d."ratingTags" AS tags, d."ratingComment" AS comment, d."ratedAt", u.name AS "clientName"
+         FROM deliveries d LEFT JOIN users u ON u.id = d."clientId"
+        WHERE d."driverId" = $1 AND d.rating IS NOT NULL ORDER BY d."ratedAt" DESC LIMIT 100`,
+      [driverId],
+    );
+    return {
+      avg: driver.ratingAvg, count: driver.ratingCount, recent, window: this.settings.pricing.ratingWindow,
+      distribution: [1, 2, 3, 4, 5].map((s) => dist[`s${s}`] as number),
+      // Prénom seulement : avis anonymisés pour l'entreprise
+      items: items.map((x: { clientName: string | null }) => ({ ...x, clientName: x.clientName?.trim().split(/\s+/)[0] ?? null })),
+    };
+  }
+
   private async checkFailRate(driverId: string, name: string, companyId: string | null) {
     const pct = this.settings.pricing.failAlertPct;
     if (!pct) return;

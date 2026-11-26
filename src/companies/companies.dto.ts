@@ -1,6 +1,6 @@
 import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
 import { Type } from 'class-transformer';
-import { ArrayMinSize, IsArray, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
 import {PersonDto} from '../common/dto';
 
 export class CreateCompanyDto {
@@ -57,4 +57,22 @@ export class DriverVehicleDto {
 /** Engins dont dispose l'entreprise */
 export class VehiclesDto {
   @IsArray() @ArrayMinSize(1, { message: 'Choisissez au moins un engin' }) @IsIn(['MOTO', 'CAR', 'CARGO'], { each: true }) vehicles: string[];
+}
+
+class OpeningHoursDto {
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'Heure d’ouverture : HH:MM' }) open: string;
+  @Matches(/^([01]\d|2[0-3]):[0-5]\d$/, { message: 'Heure de fermeture : HH:MM' }) close: string;
+  @IsArray() @ArrayMinSize(1, { message: 'Choisissez au moins un jour' }) @IsInt({ each: true }) @Min(1, { each: true }) @Max(7, { each: true }) days: number[];
+}
+
+/** Gérant : ouverture aux commandes des clients */
+export class AvailabilityDto {
+  @IsOptional() @IsBoolean() acceptingOrders?: boolean;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @ValidateNested() @Type(() => OpeningHoursDto) openingHours?: OpeningHoursDto | null;
+}
+
+/** SA : accès des livreurs de l'entreprise aux commandes ouvertes */
+export class OrderAccessDto {
+  @IsOptional() @IsBoolean() openOrders?: boolean;
+  @IsOptional() @IsBoolean() liOpenOrders?: boolean;
 }

@@ -31,6 +31,9 @@ export interface IndependentsConfig {
   /** Gains des entreprises : disponibles après ce délai (litiges), retrait minimum */
   earningsHoldHours: number;
   minWithdrawal: number;
+  /** Suspension automatique d'un LI dont la note moyenne (dernières notes) passe sous ce seuil */
+  autoSuspendEnabled: boolean;
+  autoSuspendBelow: number;
 }
 
 /** Accès d'un livreur aux courses : entreprise (team = elle) ou LI (team = entreprise de rattachement, null en transition) */
@@ -40,6 +43,8 @@ export interface DriverAccess {
   blocker: string | null;
   /** Peut prendre une course avec paiement à la livraison (LI : autorisé par son entreprise) */
   cod: boolean;
+  /** Voit les commandes ouvertes (réglage du SA par entreprise) ; sinon seulement celles de son entreprise */
+  open: boolean;
 }
 
 const KEY = 'independents';
@@ -54,6 +59,8 @@ const DEFAULT: IndependentsConfig = {
   transitionStartedAt: null,
   earningsHoldHours: 48,
   minWithdrawal: 5000,
+  autoSuspendEnabled: false,
+  autoSuspendBelow: 2.5,
 };
 const DAY_MS = 86_400_000;
 /** Durée des liens de lecture des pièces d'identité */
@@ -221,20 +228,21 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
 
   /** Accès aux courses d'un livreur (entreprise ou LI) */
   async access(companyId: string | null): Promise<DriverAccess> {
-    if (!companyId) return { independent: false, team: null, blocker: 'Livreur sans entreprise : contactez LETO', cod: false };
+    if (!companyId) return { independent: false, team: null, blocker: 'Livreur sans entreprise : contactez LETO', cod: false, open: false };
     const c = await this.companies.findOneBy({ id: companyId });
-    if (!c?.independent) return { independent: false, team: companyId, blocker: null, cod: true };
+    if (!c?.independent) return { independent: false, team: companyId, blocker: null, cod: true, open: c?.openOrders !== false };
     const p = await this.profiles.findOneBy({ companyId });
     const team = p?.affiliatedCompanyId ?? null;
-    const cod = !!team && (await this.companies.findOneBy({ id: team }))?.liCodAllowed === true;
-    return { independent: true, team, blocker: await this.blocker(companyId, p), cod };
+    const aff = team ? await this.companies.findOneBy({ id: team }) : null;
+    // En transition (sans entreprise) : commandes ouvertes, comme avant
+    return { independent: true, team, blocker: await this.blocker(companyId, p), cod: aff?.liCodAllowed === true, open: aff ? aff.liOpenOrders !== false : true };
   }
 
   /** Le livreur peut-il voir / prendre cette course ? (LI : paiement à la livraison seulement si son entreprise l'autorise) */
   canTake(a: DriverAccess, d: { forIndependents: boolean; targetCompanyId: string | null }, hasCod: boolean) {
-    if (!a.independent) return !d.forIndependents && (!d.targetCompanyId || d.targetCompanyId === a.team);
+    if (!a.independent) return !d.forIndependents && (d.targetCompanyId ? d.targetCompanyId === a.team : a.open);
     if (a.blocker || (hasCod && !a.cod)) return false;
-    return d.forIndependents || !d.targetCompanyId || (!!a.team && d.targetCompanyId === a.team);
+    return d.targetCompanyId ? !!a.team && d.targetCompanyId === a.team : a.open;
   }
 
   /** LI pouvant travailler : entreprise individuelle → entreprise de rattachement (null en transition) */
@@ -257,6 +265,7 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     const next = { ...this.cfg };
     if (input.registrationOpen !== undefined) next.registrationOpen = !!input.registrationOpen;
     if (input.enabled !== undefined) next.enabled = !!input.enabled;
+    if (input.autoSuspendEnabled !== undefined) next.autoSuspendEnabled = !!input.autoSuspendEnabled;
     const num = (v: unknown, name: string, min: number, max: number) => {
       const n = Number(v);
       if (!Number.isFinite(n) || n < min || n > max) throw new BadRequestException(`${name} : valeur entre ${min} et ${max} attendue`);
@@ -265,6 +274,7 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     if (input.companyMaxPct !== undefined) next.companyMaxPct = num(input.companyMaxPct, 'Commission entreprise maximum (%)', 0, 100);
     if (input.companyMaxFixed !== undefined) next.companyMaxFixed = Math.round(num(input.companyMaxFixed, 'Commission entreprise maximum (F)', 0, 100_000));
     if (input.earningsHoldHours !== undefined) next.earningsHoldHours = Math.round(num(input.earningsHoldHours, 'Délai avant retrait (heures)', 0, 720));
+    if (input.autoSuspendBelow !== undefined) next.autoSuspendBelow = Math.round(num(input.autoSuspendBelow, 'Seuil de suspension automatique (note)', 1, 5) * 10) / 10;
     if (input.minWithdrawal !== undefined) next.minWithdrawal = Math.round(num(input.minWithdrawal, 'Retrait minimum (F)', 0, 1_000_000));
     const daysChanged = input.transitionDays !== undefined && Number(input.transitionDays) !== next.transitionDays;
     if (input.transitionDays !== undefined) next.transitionDays = Math.round(num(input.transitionDays, 'Période de transition (jours)', 0, 365));
@@ -502,6 +512,23 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     if (!note?.trim()) throw new BadRequestException('Motif de la suspension obligatoire');
     return this.review(id, by, IndependentStatus.SUSPENDED, 'SUSPENDED', [IndependentStatus.APPROVED], note);
   }
+  /** Note moyenne trop basse : suspension automatique (si le SA l'a activée), LETO examine ensuite le cas */
+  async autoSuspend(driverId: string, avg: number, n: number) {
+    if (!this.cfg.autoSuspendEnabled || avg >= this.cfg.autoSuspendBelow) return false;
+    const p = await this.profiles.findOneBy({ userId: driverId });
+    if (!p || p.status !== IndependentStatus.APPROVED) return false;
+    const note = `Suspension automatique : note moyenne ${avg.toFixed(1)} sur les ${n} dernières courses notées (seuil ${this.cfg.autoSuspendBelow})`;
+    await this.review(p.id, 'LETO (automatique)', IndependentStatus.SUSPENDED, 'SUSPENDED', [IndependentStatus.APPROVED], note);
+    this.notify.send([p.userId], 'CANCELLED', { title: 'Compte suspendu', body: `${note}. LETO va examiner votre dossier.` });
+    const who = await this.users.findOneBy({ id: driverId });
+    this.notify.office({ sa: true, companyId: p.affiliatedCompanyId }, 'RATING', {
+      title: 'Livreur indépendant suspendu automatiquement',
+      body: `${who?.name ?? 'Un livreur'} : ${note.replace('Suspension automatique : ', '')}`,
+      link: '/independants',
+    });
+    return true;
+  }
+
   reactivate(id: string, by: string) {
     return this.review(id, by, IndependentStatus.APPROVED, 'REACTIVATED', [IndependentStatus.SUSPENDED]);
   }

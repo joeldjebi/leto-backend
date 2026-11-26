@@ -69,6 +69,11 @@ export interface PricingGrid {
   preCallRequired: boolean;
   /** Alerte au back-office quand le taux d'échec d'un livreur dépasse ce % sur 7 jours (0 = jamais) */
   failAlertPct: number;
+  /** Notes des clients : priorité aux livreurs bien notés (à distance proche), alerte sous ce seuil sur les N dernières notes */
+  ratingPriority: boolean;
+  ratingWindow: number;
+  /** 0 = jamais */
+  ratingAlertBelow: number;
   /** Commande sans livreur : expirée (annulée automatiquement) après ces minutes ; 0 = jamais */
   orderExpiryMin: number;
   /** Tournées : réduction (%) par arrêt au-delà du premier, plafonnée */
@@ -186,6 +191,9 @@ export const defaultGrid = (): PricingGrid => ({
   followUpAutoMin: 10,
   preCallRequired: true,
   failAlertPct: 15,
+  ratingPriority: true,
+  ratingWindow: 20,
+  ratingAlertBelow: 3.5,
   orderExpiryMin: 30,
   multiStopDiscountPct: 5,
   multiStopDiscountMaxPct: 25,

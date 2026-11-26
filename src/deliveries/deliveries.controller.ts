@@ -30,6 +30,13 @@ export class DeliveriesController {
     return this.service.create(user.sub, dto, { companyId: dto.companyId });
   }
 
+  /** Avis des clients sur un livreur (entreprise : ses livreurs et LI rattachés ; SA : tous) */
+  @Get('driver-ratings/:driverId')
+  @Roles(Role.COMPANY, Role.SUPER_ADMIN)
+  driverRatings(@CurrentUser() user: AuthUser, @Param('driverId', ParseUUIDPipe) driverId: string) {
+    return this.service.driverRatings(user, driverId);
+  }
+
   @Get('mine')
   @Roles(Role.CLIENT)
   mine(@CurrentUser() user: AuthUser) {

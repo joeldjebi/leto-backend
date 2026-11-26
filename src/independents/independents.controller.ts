@@ -64,6 +64,8 @@ class ConfigDto {
   @IsOptional() @IsNumber() transitionDays?: number;
   @IsOptional() @IsNumber() earningsHoldHours?: number;
   @IsOptional() @IsNumber() minWithdrawal?: number;
+  @IsOptional() @IsBoolean() autoSuspendEnabled?: boolean;
+  @IsOptional() @IsNumber() autoSuspendBelow?: number;
 }
 
 class NoteDto {

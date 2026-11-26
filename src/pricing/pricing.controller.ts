@@ -135,12 +135,15 @@ export class PricingController {
     // LI pouvant travailler : avec les livreurs des entreprises (ceux de l'entreprise choisie si elle est précisée)
     void independent;
     const working = await this.independents.working();
+    // Commande ouverte : seulement les livreurs que LETO laisse voir les commandes ouvertes
+    const noLi = new Set((await this.users.manager.query(`SELECT id FROM companies WHERE NOT "liOpenOrders"`)).map((r: { id: string }) => r.id));
     return drivers
       .filter((d) => d.company?.active !== false && d.lastLat != null && d.lastLng != null)
       .filter((d) => {
-        if (!d.company?.independent) return !companyId || d.companyId === companyId;
+        if (!d.company?.independent) return companyId ? d.companyId === companyId : d.company?.openOrders !== false;
         if (!working.has(d.companyId!)) return false;
-        return !companyId || working.get(d.companyId!) === companyId;
+        const aff = working.get(d.companyId!);
+        return companyId ? aff === companyId : !aff || !noLi.has(aff);
       })
       .map((d) => ({ d, km: haversineKm(lat, lng, d.lastLat!, d.lastLng!) }))
       .filter((x) => x.km <= 8)

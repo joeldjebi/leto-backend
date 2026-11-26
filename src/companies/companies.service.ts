@@ -9,6 +9,8 @@ import { PersonDto } from '../common/dto';
 import { normalizePlate, Role, User } from '../users/user.entity';
 import { CreateCompanyDto } from './companies.dto';
 import { Company } from './company.entity';
+import { closedText, OpeningHours, openNow, validHours } from './opening';
+import { TrackingGateway } from '../tracking/tracking.gateway';
 
 @Injectable()
 export class CompaniesService {
@@ -18,7 +20,49 @@ export class CompaniesService {
     @InjectRepository(User) private users: Repository<User>,
     private settings: SettingsService,
     private billing: BillingService,
+    private tracking: TrackingGateway,
   ) {}
+
+  // ---------- Ouverture aux commandes des clients ----------
+
+  async availability(companyId: string) {
+    const c = await this.companies.findOneBy({ id: companyId });
+    if (!c) throw new BadRequestException('Entreprise introuvable');
+    const open = openNow(c);
+    return {
+      acceptingOrders: c.acceptingOrders,
+      openingHours: c.openingHours,
+      openNow: open,
+      status: open ? 'Ouverte aux commandes des clients' : closedText('Votre entreprise', c),
+      // Réglages de LETO (lecture seule pour le gérant)
+      openOrders: c.openOrders,
+      liOpenOrders: c.liOpenOrders,
+    };
+  }
+
+  /** Le gérant ouvre / ferme son entreprise aux commandes des clients, avec des horaires facultatifs */
+  async setAvailability(companyId: string, dto: { acceptingOrders?: boolean; openingHours?: OpeningHours | null }) {
+    const patch: Partial<Company> = {};
+    if (typeof dto.acceptingOrders === 'boolean') patch.acceptingOrders = dto.acceptingOrders;
+    if (dto.openingHours !== undefined) {
+      if (dto.openingHours !== null && !validHours(dto.openingHours)) throw new BadRequestException('Horaires invalides : ouverture et fermeture (HH:MM) et au moins un jour');
+      patch.openingHours = dto.openingHours ? { open: dto.openingHours.open, close: dto.openingHours.close, days: [...new Set(dto.openingHours.days)].sort() } : null;
+    }
+    await this.companies.update(companyId, patch);
+    this.tracking.emitToCompany(companyId, 'company:availability', {});
+    return this.availability(companyId);
+  }
+
+  /** SA : ses livreurs / ses livreurs indépendants voient-ils les commandes ouvertes ? */
+  async setOrderAccess(id: string, dto: { openOrders?: boolean; liOpenOrders?: boolean }) {
+    const patch: Partial<Company> = {};
+    if (typeof dto.openOrders === 'boolean') patch.openOrders = dto.openOrders;
+    if (typeof dto.liOpenOrders === 'boolean') patch.liOpenOrders = dto.liOpenOrders;
+    await this.companies.update(id, patch);
+    this.tracking.server?.to('drivers').emit('deliveries:changed', {});
+    this.tracking.emitToCompany(id, 'company:availability', {});
+    return this.companies.findOneBy({ id });
+  }
 
   findAll(status?: string) {
     return this.companies.find({
@@ -148,8 +192,9 @@ export class CompaniesService {
         ORDER BY c.name`,
       [this.billing.config.subscriptionEnabled],
     );
-    const companies = await this.companies.findBy({ id: In(rows.map((r) => r.id)) });
-    return rows.map((r) => {
+    // Fermées (interrupteur ou horaires) : absentes de la liste des clients
+    const companies = (await this.companies.findBy({ id: In(rows.map((r) => r.id)) })).filter((c) => openNow(c));
+    return rows.filter((r) => companies.some((c) => c.id === r.id)).map((r) => {
       const grid = this.settings.gridFor(companies.find((c) => c.id === r.id));
       const handled = r.delivered + r.failed;
       return {

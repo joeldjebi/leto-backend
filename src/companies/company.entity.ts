@@ -1,3 +1,4 @@
+import { OpeningHours } from './opening';
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
 @Entity('companies')
@@ -69,6 +70,22 @@ export class Company {
   /** Ses livreurs indépendants peuvent prendre les courses avec paiement à la livraison (encaissements versés à l'entreprise) */
   @Column({ default: false })
   liCodAllowed: boolean;
+
+  /** Ouverte aux commandes des clients (interrupteur du gérant) */
+  @Column({ default: true })
+  acceptingOrders: boolean;
+
+  /** Horaires d'ouverture automatiques (null = selon l'interrupteur seulement) */
+  @Column({ type: 'jsonb', nullable: true })
+  openingHours: OpeningHours | null;
+
+  /** SA : ses livreurs voient les commandes ouvertes (sinon seulement celles à son nom et ses affectations) */
+  @Column({ default: true })
+  openOrders: boolean;
+
+  /** SA : ses livreurs indépendants voient les commandes ouvertes */
+  @Column({ default: true })
+  liOpenOrders: boolean;
 
   /** Dernière visite du vivier des livreurs indépendants (bandeau « nouveaux livreurs ») */
   @Column({ type: 'timestamptz', nullable: true })
