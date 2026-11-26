@@ -62,6 +62,10 @@ import { AffiliationInvite, CompanyEarning, Withdrawal } from './affiliations/af
 import { AffiliationsController } from './affiliations/affiliations.controller';
 import { AffiliationsService } from './affiliations/affiliations.service';
 import { PayAdvance, Payslip } from './payroll/payroll.entities';
+import { Partner, PartnerKey, PartnerWebhook } from './partners/partner.entities';
+import { PartnerApiController, PartnerGuard } from './partners/partner-api.controller';
+import { PartnersController } from './partners/partners.controller';
+import { PartnersService } from './partners/partners.service';
 import { PayrollController } from './payroll/payroll.controller';
 import { PayrollService } from './payroll/payroll.service';
 
@@ -75,12 +79,12 @@ import { PayrollService } from './payroll/payroll.service';
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert, AffiliationInvite, CompanyEarning, Withdrawal, Payslip, PayAdvance],
+      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert, AffiliationInvite, CompanyEarning, Withdrawal, Payslip, PayAdvance, Partner, PartnerKey, PartnerWebhook],
       // Crée / met à jour les tables au démarrage (DB_SYNC=false pour désactiver).
       // À remplacer par des migrations TypeORM quand le schéma sera stabilisé.
       synchronize: process.env.DB_SYNC !== 'false',
     }),
-    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert, AffiliationInvite, CompanyEarning, Withdrawal, Payslip, PayAdvance]),
+    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert, AffiliationInvite, CompanyEarning, Withdrawal, Payslip, PayAdvance, Partner, PartnerKey, PartnerWebhook]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
@@ -111,6 +115,8 @@ import { PayrollService } from './payroll/payroll.service';
     UsersController,
     AffiliationsController,
     PayrollController,
+    PartnerApiController,
+    PartnersController,
   ],
   providers: [
     AuthService,
@@ -136,6 +142,8 @@ import { PayrollService } from './payroll/payroll.service';
     ProspectsService,
     AffiliationsService,
     PayrollService,
+    PartnersService,
+    PartnerGuard,
     TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

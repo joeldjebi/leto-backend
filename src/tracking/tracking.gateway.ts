@@ -317,7 +317,11 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
     this.server?.to(`delivery:${deliveryId}`).emit(event, payload);
   }
 
+  /** Branché par l'API partenaire : webhooks à chaque changement d'une course */
+  onDeliveryChanged?: (id: string) => void;
+
   deliveryChanged(d: { id: string; status: DeliveryStatus }) {
+    this.onDeliveryChanged?.(d.id);
     // Course terminée ou annulée : la position partagée par le client n'est plus transmise
     const shared = this.clientPos.get(d.id);
     if (shared && d.status !== DeliveryStatus.ACCEPTED && d.status !== DeliveryStatus.PICKED_UP) {

@@ -100,7 +100,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
   async create(
     clientId: string,
     dto: CreateDeliveryDto,
-    opts: { companyId?: string | null; source?: 'CLIENT' | 'COMPANY'; assignedDriverId?: string | null; priceOverride?: number } = {},
+    opts: { companyId?: string | null; source?: 'CLIENT' | 'COMPANY'; assignedDriverId?: string | null; priceOverride?: number; partner?: { id: string; reference: string | null; idemKey: string | null } } = {},
   ) {
     let company: Company | null = null;
     // Les livreurs indépendants sont rattachés à des entreprises : plus de commande réservée aux LI
@@ -149,6 +149,9 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
         trackingToken: randomBytes(16).toString('hex'),
         targetCompanyId: company?.id ?? null,
         forIndependents,
+        partnerId: opts.partner?.id ?? null,
+        partnerReference: opts.partner?.reference ?? null,
+        partnerIdemKey: opts.partner?.idemKey ?? null,
         source: opts.source ?? 'CLIENT',
         assignedDriverId: opts.assignedDriverId ?? null,
         stops: ordered.map((s, position) =>
