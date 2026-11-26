@@ -1,10 +1,10 @@
-import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { Role } from '../users/user.entity';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../users/user.entity';
-import { AdminCancelDto, AnswerCancelDto, AssignDto, CancelRequestDto, CancelStopDto, CompanyOrderDto, ConfirmStopDto, CreateDeliveryDto, DeclineAssignmentDto, DisputeStopDto, FailStopDto, RateDto, ReorderStopsDto, ResolveDisputeDto, ReturnDto } from './deliveries.dto';
+import { AdminCancelDto, AnswerCancelDto, AssignDto, CancelRequestDto, CancelStopDto, CompanyOrderDto, ConfirmStopDto, CreateDeliveryDto, DeclineAssignmentDto, DisputeStopDto, FailStopDto, FollowUpDto, HelpAnswerDto, HelpRequestDto, RateDto, ReorderStopsDto, ResolveDisputeDto, ReturnDto } from './deliveries.dto';
 import { DeliveriesService } from './deliveries.service';
 import { AlertResponseDto, PlanDto } from './deliveries.dto';
 import { DispatchService } from './dispatch.service';
@@ -81,6 +81,30 @@ export class DeliveriesController {
     @Body() dto: AnswerCancelDto,
   ) {
     return this.service.answerCancelRequest(user.sub, id, stopId, dto.accept);
+  }
+
+  /** Destinataire injoignable : réponse de l'expéditeur au livreur sur place */
+  @Post(':id/stops/:stopId/help/answer')
+  @Roles(Role.CLIENT)
+  answerHelp(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('stopId', ParseUUIDPipe) stopId: string,
+    @Body() dto: HelpAnswerDto,
+  ) {
+    return this.service.answerHelp(user.sub, id, stopId, dto);
+  }
+
+  /** Après un échec : nouvelle tentative ou retour du colis */
+  @Post(':id/stops/:stopId/follow-up')
+  @Roles(Role.CLIENT)
+  followUp(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('stopId', ParseUUIDPipe) stopId: string,
+    @Body() dto: FollowUpDto,
+  ) {
+    return this.service.chooseFollowUp(user.sub, id, stopId, dto);
   }
 
   @Post(':id/stops/:stopId/dispute')
@@ -179,8 +203,34 @@ export class DeliveriesController {
 
   @Post(':id/pickup')
   @Roles(Role.DRIVER)
-  pickup(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.service.pickup(user.sub, id);
+  pickup(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Headers('x-app-version') appVersion?: string) {
+    // Appel obligatoire seulement pour les apps qui l'enregistrent (1.1.4 et plus) : les anciennes ne sont pas bloquées
+    return this.service.pickup(user.sub, id, !!appVersion);
+  }
+
+  /** Appel passé depuis l'app : à l'expéditeur (sans arrêt) ou à un destinataire */
+  @Post(':id/call')
+  @Roles(Role.DRIVER)
+  callSender(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.logCall(user.sub, id, null);
+  }
+
+  @Post(':id/stops/:stopId/call')
+  @Roles(Role.DRIVER)
+  callRecipient(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Param('stopId', ParseUUIDPipe) stopId: string) {
+    return this.service.logCall(user.sub, id, stopId);
+  }
+
+  /** Sur place, destinataire injoignable : demander à l'expéditeur quoi faire */
+  @Post(':id/stops/:stopId/help')
+  @Roles(Role.DRIVER)
+  requestHelp(
+    @CurrentUser() user: AuthUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('stopId', ParseUUIDPipe) stopId: string,
+    @Body() dto: HelpRequestDto,
+  ) {
+    return this.service.requestHelp(user.sub, id, stopId, dto.note);
   }
 
   @Post(':id/stops/:stopId/deliver')

@@ -92,6 +92,14 @@ export class Delivery {
   @Column({ type: 'jsonb', nullable: true })
   pricingDetails: { inAbidjan: boolean; surchargePct: number; surcharges: { key: string; label: string; pct: number }[]; stopDiscountPct: number } | null;
 
+  /** Frais ajoutés après la commande (retours, nouvelles tentatives) : total dû = price + extraFees */
+  @Column({ type: 'int', default: 0 })
+  extraFees: number;
+
+  /** Le livreur a appelé l'expéditeur après l'acceptation */
+  @Column({ type: 'timestamptz', nullable: true })
+  pickupCalledAt: Date | null;
+
   /** Commission LETO (fixée à l'acceptation, prélevée sur le crédit de l'entreprise à la fin de la tournée) */
   @Column({ type: 'int', nullable: true })
   commissionAmount: number | null;

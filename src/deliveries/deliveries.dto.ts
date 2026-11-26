@@ -132,7 +132,30 @@ export class AnswerCancelDto {
 }
 
 export class ReturnDto {
-  @Matches(/^\d{4}$/, { message: 'Code de retour : 4 chiffres' }) code: string;
+  /** Exigé seulement si l'admin a activé le code de retour */
+  @IsOptional() @Matches(/^\d{4}$/, { message: 'Code de retour : 4 chiffres' }) code?: string;
+}
+
+/** Sur place, destinataire injoignable : le livreur demande à l'expéditeur quoi faire */
+export class HelpRequestDto {
+  @IsOptional() @IsString() @MaxLength(300) note?: string;
+}
+
+/** Réponse de l'expéditeur : attendre, nouveau numéro / indications, ou annuler (colis rapporté) */
+export class HelpAnswerDto {
+  @IsIn(['WAIT', 'UPDATE', 'CANCEL'], { message: 'Choix invalide' }) action: 'WAIT' | 'UPDATE' | 'CANCEL';
+  @IsOptional() @IsPhone({ message: PHONE_MESSAGE }) recipientPhone?: string;
+  @IsOptional() @IsString() @MaxLength(500) details?: string;
+}
+
+/** Après un échec : nouvelle tentative (même adresse ou une autre, proche) ou retour à l'expéditeur */
+export class FollowUpDto {
+  @IsIn(['RETRY', 'RETURN'], { message: 'Choix invalide' }) action: 'RETRY' | 'RETURN';
+  @IsOptional() @IsPhone({ message: PHONE_MESSAGE }) recipientPhone?: string;
+  @IsOptional() @IsLatitude() lat?: number;
+  @IsOptional() @IsLongitude() lng?: number;
+  @IsOptional() @IsString() @IsNotEmpty() @MaxLength(200) address?: string;
+  @IsOptional() @IsString() @MaxLength(500) details?: string;
 }
 
 export class DisputeStopDto {

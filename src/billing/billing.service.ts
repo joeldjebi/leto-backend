@@ -218,13 +218,13 @@ export class BillingService implements OnModuleInit {
     return { ok: true, reason: null };
   }
 
-  /** Prix modifié avant la fin (arrêt retiré) : la commission réservée suit le nouveau prix */
+  /** Prix modifié avant la fin (arrêt retiré, frais de retour ou de nouvelle tentative) : la commission réservée suit le total */
   async recompute(deliveryId: string) {
     const d = await this.db.getRepository(Delivery).findOneBy({ id: deliveryId });
     if (!d?.companyId || d.commissionAmount == null || d.commissionChargedAt || d.commissionRule === TRIAL_RULE) return;
     const c = await this.companies.findOneBy({ id: d.companyId });
     if (!c) return;
-    const { amount, label } = this.commission(c, d.price);
+    const { amount, label } = this.commission(c, d.price + (d.extraFees ?? 0));
     await this.db.getRepository(Delivery).update(d.id, { commissionAmount: amount, commissionRule: label });
   }
 

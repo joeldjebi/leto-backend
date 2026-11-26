@@ -15,8 +15,31 @@ export enum DisputeDecision {
 }
 
 export enum FailureReason {
-  ABSENT = 'ABSENT', // personne sur place / injoignable (attente obligatoire)
+  ABSENT = 'ABSENT', // personne sur place / injoignable (appel et attente obligatoires)
   REFUSED = 'REFUSED', // le destinataire refuse le colis
+  WRONG_ADDRESS = 'WRONG_ADDRESS', // adresse introuvable ou erronée
+  NO_MONEY = 'NO_MONEY', // paiement à la livraison : le destinataire n'a pas l'argent
+  DAMAGED = 'DAMAGED', // colis abîmé, refusé à juste titre
+  UNSAFE = 'UNSAFE', // lieu dangereux ou inaccessible
+}
+
+/** Après un échec : l'expéditeur choisit (DECIDING), puis nouvelle tentative (RETRY) ou retour (RETURN) */
+export enum FollowUp {
+  DECIDING = 'DECIDING',
+  RETRY = 'RETRY',
+  RETURN = 'RETURN',
+}
+
+/** Une nouvelle tentative au plus par colis (2 passages) */
+export const MAX_ATTEMPTS = 2;
+
+/** Tentative précédente (gardée quand l'expéditeur demande une nouvelle tentative) */
+export interface PastAttempt {
+  failedAt: string;
+  reason: FailureReason;
+  photoUrl: string | null;
+  note: string | null;
+  address: string;
 }
 
 /** Un arrêt d'une course : un destinataire, son code, son éventuel montant à encaisser */
@@ -104,6 +127,42 @@ export class DeliveryStop {
   disputeResolvedBy: string | null;
   @Column({ type: 'timestamptz', nullable: true })
   disputeResolvedAt: Date | null;
+
+  // Appels du livreur au destinataire (obligatoires avant de partir avec les colis, et avant une absence)
+  @Column({ type: 'timestamptz', nullable: true })
+  calledAt: Date | null;
+  @Column({ type: 'int', default: 0 })
+  callCount: number;
+
+  /** Sur place, destinataire injoignable : le livreur demande à l'expéditeur quoi faire */
+  @Column({ type: 'timestamptz', nullable: true })
+  helpRequestedAt: Date | null;
+  /** Réponse de l'expéditeur (« Attendre 5 min de plus », « Nouveau numéro… ») */
+  @Column({ type: 'text', nullable: true })
+  helpAnswer: string | null;
+  /** L'expéditeur demande d'attendre : absence impossible avant cette heure */
+  @Column({ type: 'timestamptz', nullable: true })
+  waitUntil: Date | null;
+
+  /** Passage n° (1 = premier, 2 = nouvelle tentative) */
+  @Column({ type: 'int', default: 1 })
+  attempt: number;
+  @Column({ type: 'jsonb', nullable: true })
+  pastAttempts: PastAttempt[] | null;
+  /** Suite donnée à l'échec */
+  @Column({ type: 'enum', enum: FollowUp, nullable: true })
+  followUp: FollowUp | null;
+  /** Sans choix de l'expéditeur avant cette heure : retour automatique */
+  @Column({ type: 'timestamptz', nullable: true })
+  followUpDeadline: Date | null;
+  @Column({ type: 'text', nullable: true })
+  followUpBy: string | null;
+
+  /** Frais dus par l'expéditeur pour cet arrêt : retour du colis, nouvelle tentative */
+  @Column({ type: 'int', default: 0 })
+  returnFee: number;
+  @Column({ type: 'int', default: 0 })
+  retryFee: number;
 
   // Annulation de l'arrêt
   @Column({ type: 'timestamptz', nullable: true })

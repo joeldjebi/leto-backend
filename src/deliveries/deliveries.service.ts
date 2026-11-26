@@ -23,9 +23,23 @@ import { TrackingGateway } from '../tracking/tracking.gateway';
 import { Role, User } from '../users/user.entity';
 import { SettingsService } from '../settings/settings.service';
 import { FAIL_RADIUS_M, LOCATION_MAX_AGE_MS } from './absence';
-import { CompanyOrderDto, CreateDeliveryDto, FailStopDto, RateDto } from './deliveries.dto';
-import { DeliveryStop, DisputeDecision, FailureReason, StopStatus } from './delivery-stop.entity';
+import { CompanyOrderDto, CreateDeliveryDto, FailStopDto, FollowUpDto, HelpAnswerDto, RateDto } from './deliveries.dto';
+import { DeliveryStop, DisputeDecision, FailureReason, FollowUp, MAX_ATTEMPTS, StopStatus } from './delivery-stop.entity';
 import { Delivery, DeliveryStatus } from './delivery.entity';
+
+/** Motif d'échec, en clair pour l'expéditeur et le back-office */
+const FAILURE_TEXT: Record<FailureReason, string> = {
+  ABSENT: 'destinataire absent ou injoignable',
+  REFUSED: 'colis refusé',
+  WRONG_ADDRESS: 'adresse introuvable',
+  NO_MONEY: 'le destinataire n’avait pas l’argent',
+  DAMAGED: 'colis abîmé',
+  UNSAFE: 'lieu dangereux ou inaccessible',
+};
+/** L'expéditeur demande d'attendre : minutes ajoutées */
+const HELP_WAIT_MIN = 5;
+/** Nouvelle tentative : nouvelle adresse à moins de ce rayon de la première (sinon nouvelle commande) */
+const RETRY_MAX_KM = 5;
 
 @Injectable()
 export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
@@ -492,8 +506,11 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       cancelledBy: by,
       cancelReason: reason,
       cancelRequestedAt: null,
+      // Après la récupération, le colis revient chez l'expéditeur : retour facturé
+      ...(beforePickup ? {} : { followUp: FollowUp.RETURN, followUpBy: by, returnFee: this.stopFee(d, this.settings.pricing.returnFeePct) }),
     });
     if (beforePickup) await this.reprice(d, remaining);
+    else await this.refreshFees(d.id);
     if (d.driverId) {
       this.tracking.emitToUser(d.driverId, 'stop:cancelled', { deliveryId: d.id, stopId, recipientName: stop.recipientName });
       this.push.send([d.driverId], 'UPDATED', {
@@ -608,6 +625,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
   onModuleInit() {
     this.timer = setInterval(() => {
       this.autoAcceptCancelRequests().catch(() => {});
+      this.autoReturns().catch((e) => this.logger.warn(`Retours automatiques : ${(e as Error).message}`));
       this.expireOrders().catch((e) => this.logger.warn(`Expiration des commandes : ${(e as Error).message}`));
     }, 30_000);
   }
@@ -721,7 +739,19 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     return this.notify(accepted);
   }
 
-  async pickup(driverId: string, id: string) {
+  async pickup(driverId: string, id: string, checkCalls = true) {
+    if (checkCalls && this.settings.pricing.preCallRequired !== false) {
+      const d = await this.findOne(id);
+      if (d.driverId !== driverId) throw new ForbiddenException('Ce n’est pas votre course');
+      const missing = d.stops.filter((s) => s.status === StopStatus.PENDING && !s.calledAt);
+      if (missing.length) {
+        throw new BadRequestException(
+          missing.length === 1
+            ? `Appelez ${missing[0].recipientName} avant de prendre la route, pour confirmer qu’il ou elle est disponible`
+            : `Appelez les ${missing.length} destinataires avant de prendre la route, pour confirmer qu’ils sont disponibles`,
+        );
+      }
+    }
     const res = await this.repo.update(
       { id, driverId, status: DeliveryStatus.ACCEPTED },
       { status: DeliveryStatus.PICKED_UP, pickedUpAt: new Date() },
@@ -760,6 +790,13 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     if (distM > FAIL_RADIUS_M) {
       throw new BadRequestException(`Vous devez être à l’adresse du destinataire (vous êtes à ${Math.round(distM)} m)`);
     }
+    if ((dto.reason === FailureReason.ABSENT || dto.reason === FailureReason.WRONG_ADDRESS) && !stop.callCount) {
+      throw new BadRequestException('Appelez d’abord le destinataire depuis l’app');
+    }
+    if (dto.reason === FailureReason.ABSENT && stop.waitUntil && stop.waitUntil.getTime() > Date.now()) {
+      const left = Math.ceil((stop.waitUntil.getTime() - Date.now()) / 60000);
+      throw new BadRequestException(`L’expéditeur vous demande de patienter encore ${left} min`);
+    }
     if (dto.reason === FailureReason.ABSENT) {
       if (!stop.arrivedAt) throw new BadRequestException('Arrivée non détectée : approchez-vous de l’adresse');
       const waitedMs = Date.now() - stop.arrivedAt.getTime();
@@ -770,6 +807,9 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // Suite : l'expéditeur choisit (nouvelle tentative ou retour), sauf 2e passage ou colis abîmé → retour
+    const g = this.settings.pricing;
+    const canRetry = stop.attempt < MAX_ATTEMPTS && dto.reason !== FailureReason.DAMAGED;
     await this.stops.update(stopId, {
       status: StopStatus.FAILED,
       failedAt: new Date(),
@@ -778,15 +818,27 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       failureNote: dto.note ?? null,
       failureLat: driver.lastLat,
       failureLng: driver.lastLng,
+      ...(canRetry
+        ? { followUp: FollowUp.DECIDING, followUpDeadline: new Date(Date.now() + g.followUpAutoMin * 60_000), followUpBy: null }
+        : { followUp: FollowUp.RETURN, followUpBy: 'Automatique', returnFee: this.stopFee(d, g.returnFeePct) }),
     });
-    this.tracking.emitToUser(d.clientId, 'stop:failed', { deliveryId: id, stopId, recipientName: stop.recipientName });
-    this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Livraison non effectuée', body: `${stop.recipientName} : ${dto.reason === 'ABSENT' ? 'destinataire absent' : 'voir le détail'}`, deliveryId: id });
+    if (!canRetry) await this.refreshFees(id);
+    const why = FAILURE_TEXT[dto.reason] ?? 'voir le détail';
+    this.tracking.emitToUser(d.clientId, 'stop:failed', { deliveryId: id, stopId, recipientName: stop.recipientName, deciding: canRetry, autoMin: g.followUpAutoMin });
+    this.push.send([d.clientId], 'CLIENT_UPDATE', {
+      title: 'Livraison non effectuée',
+      body: canRetry
+        ? `${stop.recipientName} : ${why}. Choisissez une nouvelle tentative ou le retour du colis (sinon retour dans ${g.followUpAutoMin} min).`
+        : `${stop.recipientName} : ${why}. Le colis vous est rapporté.`,
+      deliveryId: id,
+    });
     this.push.office({ companyId: d.companyId }, 'FAILED', {
       title: 'Livraison non effectuée',
-      body: `${stop.recipientName} : ${dto.reason === 'ABSENT' ? 'destinataire absent' : dto.reason === 'REFUSED' ? 'colis refusé' : 'voir le détail'}`,
+      body: `${stop.recipientName} : ${why}${stop.attempt > 1 ? ' (2e passage)' : ''}`,
       link: `/courses/${id}`,
       deliveryId: id,
     });
+    this.checkFailRate(driverId, driver.name, d.companyId).catch(() => {});
     return this.afterStop(id);
   }
 
@@ -801,12 +853,18 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
 
   /** Après chaque arrêt : la course est terminée quand il ne reste plus d'arrêt en attente */
   private async afterStop(id: string) {
-    const pending = await this.stops.countBy({ deliveryId: id, status: StopStatus.PENDING });
+    // Encore à livrer, ou échec en attente du choix de l'expéditeur
+    const pending = await this.stops.count({
+      where: [
+        { deliveryId: id, status: StopStatus.PENDING },
+        { deliveryId: id, status: StopStatus.FAILED, followUp: FollowUp.DECIDING },
+      ],
+    });
     if (pending === 0) {
-      // Colis non livrés (échec ou annulation) : retour à l'expéditeur confirmé par son code, si l'admin l'exige
+      // Colis non livrés (échec ou annulation) : toujours rapportés à l'expéditeur (code exigé si l'admin l'a activé)
       const undelivered = await this.stops.countBy({ deliveryId: id, status: Not(StopStatus.DELIVERED) });
       const d = await this.repo.findOneBy({ id });
-      if (this.settings.pricing.returnCodeEnabled && undelivered > 0 && d?.pickedUpAt && !d.returnedAt) {
+      if (undelivered > 0 && d?.pickedUpAt && !d.returnedAt) {
         await this.repo.update(id, { returnRequired: true });
         this.tracking.emitToUser(d.clientId, 'delivery:return', { deliveryId: id, parcels: undelivered });
       } else {
@@ -832,12 +890,22 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Le livreur rapporte les colis non livrés : l'expéditeur lui donne son code de retour */
-  async confirmReturn(driverId: string, id: string, code: string) {
+  async confirmReturn(driverId: string, id: string, code?: string) {
     const d = await this.findOne(id, true);
     if (d.driverId !== driverId) throw new ForbiddenException('Ce n’est pas votre course');
     if (!d.returnRequired || d.returnedAt || d.status !== DeliveryStatus.PICKED_UP) throw new BadRequestException('Aucun retour attendu');
-    if (d.returnCode !== code) throw new BadRequestException('Code de retour incorrect');
+    if (this.settings.pricing.returnCodeEnabled) {
+      if (d.returnCode !== code) throw new BadRequestException(code ? 'Code de retour incorrect' : 'Demandez le code de retour à l’expéditeur');
+    } else {
+      // Sans code : le livreur doit être au point de départ
+      const driver = await this.users.findOneBy({ id: driverId });
+      const fresh = driver?.lastLocationAt && Date.now() - driver.lastLocationAt.getTime() < LOCATION_MAX_AGE_MS;
+      if (!fresh || driver?.lastLat == null) throw new BadRequestException('Position GPS indisponible : activez la localisation');
+      const distM = haversineKm(driver.lastLat, driver.lastLng, d.pickupLat, d.pickupLng) * 1000;
+      if (distM > FAIL_RADIUS_M) throw new BadRequestException(`Rendez le colis au point de départ (vous êtes à ${Math.round(distM)} m)`);
+    }
     await this.repo.update(id, { returnedAt: new Date() });
+    this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Colis rapporté', body: `${d.driver?.name ?? 'Le livreur'} vous a rendu les colis non livrés`, deliveryId: id });
     await this.finish(id);
     return this.notify(await this.findOne(id));
   }
@@ -913,9 +981,207 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       disputeResolvedBy: by,
       disputeResolvedAt: new Date(),
     });
-    if (decision === DisputeDecision.UPHELD) await this.billing.refundStop(id, by);
+    if (decision === DisputeDecision.UPHELD) {
+      await this.stops.update(stopId, { returnFee: 0, retryFee: 0 });
+      await this.refreshFees(id);
+      await this.billing.refundStop(id, by);
+    }
     this.tracking.emitToUser(d.clientId, 'dispute:resolved', { deliveryId: id, stopId, decision });
     return this.notify(await this.findOne(id));
+  }
+
+  // ---------- Appels, aide sur place, suite d'un échec ----------
+
+  /** Le livreur appelle un destinataire (ou l'expéditeur si [stopId] est vide) depuis l'app : l'appel est enregistré */
+  async logCall(driverId: string, id: string, stopId: string | null) {
+    const d = await this.findOne(id);
+    if (d.driverId !== driverId) throw new ForbiddenException('Ce n’est pas votre course');
+    if (d.status !== DeliveryStatus.ACCEPTED && d.status !== DeliveryStatus.PICKED_UP) throw new BadRequestException('Course non active');
+    if (!stopId) {
+      await this.repo.update(id, { pickupCalledAt: new Date() });
+    } else {
+      const stop = d.stops.find((s) => s.id === stopId);
+      if (!stop || stop.status !== StopStatus.PENDING) throw new BadRequestException('Cet arrêt est déjà traité');
+      await this.stops.update(stopId, { calledAt: new Date(), callCount: () => '"callCount" + 1' });
+    }
+    return this.notify(await this.findOne(id));
+  }
+
+  /** Sur place, le destinataire ne répond pas : le livreur demande à l'expéditeur quoi faire */
+  async requestHelp(driverId: string, id: string, stopId: string, note?: string) {
+    const d = await this.findOne(id);
+    const stop = this.driverStop(d, driverId, stopId);
+    if (!stop.arrivedAt) throw new BadRequestException('Arrivez d’abord à l’adresse du destinataire');
+    if (!stop.callCount) throw new BadRequestException('Appelez d’abord le destinataire depuis l’app');
+    if (stop.helpRequestedAt && !stop.helpAnswer) throw new BadRequestException('Demande déjà envoyée à l’expéditeur');
+    await this.stops.update(stopId, { helpRequestedAt: new Date(), helpAnswer: null });
+    this.tracking.emitToUser(d.clientId, 'stop:help', { deliveryId: id, stopId, recipientName: stop.recipientName, note: note ?? null });
+    this.push.send([d.clientId], 'CLIENT_UPDATE', {
+      title: 'Le destinataire ne répond pas',
+      body: `${d.driver?.name ?? 'Le livreur'} est chez ${stop.recipientName}${note ? ` (« ${note} »)` : ''}. Dites-lui quoi faire dans l’app.`,
+      deliveryId: id,
+    });
+    return this.notify(await this.findOne(id));
+  }
+
+  /** Réponse de l'expéditeur : attendre 5 min de plus, nouveau numéro / indications, ou annuler (colis rapporté) */
+  async answerHelp(clientId: string, id: string, stopId: string, dto: HelpAnswerDto) {
+    const d = await this.oneForClient(clientId, id);
+    const stop = d.stops.find((s) => s.id === stopId);
+    if (!stop?.helpRequestedAt || stop.status !== StopStatus.PENDING) throw new BadRequestException('Aucune demande en attente');
+    if (dto.action === 'CANCEL') {
+      await this.stops.update(stopId, { helpAnswer: 'Annuler : rapporter le colis' });
+      return this.applyStopCancel(d, stopId, 'Client (destinataire injoignable)', 'Destinataire injoignable');
+    }
+    let answer = 'Attendre 5 min de plus';
+    const patch: Partial<DeliveryStop> = { waitUntil: new Date(Date.now() + HELP_WAIT_MIN * 60_000) };
+    if (dto.action === 'UPDATE') {
+      const phone = dto.recipientPhone?.trim();
+      const details = dto.details?.trim();
+      if (!phone && !details) throw new BadRequestException('Indiquez un nouveau numéro ou des indications');
+      if (phone) patch.recipientPhone = phone;
+      if (details) patch.details = details;
+      answer = [phone && `Nouveau numéro : ${phone}`, details && `Indications : ${details}`].filter(Boolean).join(' · ');
+    }
+    await this.stops.update(stopId, { ...patch, helpAnswer: answer });
+    if (d.driverId) {
+      this.tracking.emitToUser(d.driverId, 'stop:help-answer', { deliveryId: id, stopId, recipientName: stop.recipientName, answer });
+      this.push.send([d.driverId], 'UPDATED', { title: `Réponse de l’expéditeur · ${stop.recipientName}`, body: answer, deliveryId: id });
+    }
+    return this.notify(await this.findOne(id, true));
+  }
+
+  /** Après un échec : l'expéditeur choisit une nouvelle tentative (à prix réduit) ou le retour du colis */
+  async chooseFollowUp(clientId: string, id: string, stopId: string, dto: FollowUpDto) {
+    const d = await this.oneForClient(clientId, id);
+    const stop = d.stops.find((s) => s.id === stopId);
+    if (!stop || stop.status !== StopStatus.FAILED || stop.followUp !== FollowUp.DECIDING || d.status !== DeliveryStatus.PICKED_UP) {
+      throw new BadRequestException('Le choix n’est plus possible pour ce colis');
+    }
+    if (dto.action === 'RETURN') {
+      await this.setReturn(d, stop, 'Client');
+      return this.afterStop(id);
+    }
+    if (stop.disputedAt) throw new BadRequestException('Un litige est en cours sur ce colis : il vous sera rapporté');
+    const moved = dto.lat != null && dto.lng != null;
+    if (moved) {
+      if (!dto.address?.trim()) throw new BadRequestException('Adresse de la nouvelle tentative obligatoire');
+      const km = haversineKm(stop.lat, stop.lng, dto.lat!, dto.lng!);
+      if (km > RETRY_MAX_KM) throw new BadRequestException(`Nouvelle adresse à plus de ${RETRY_MAX_KM} km : passez une nouvelle commande`);
+    }
+    const g = this.settings.pricing;
+    const past = [
+      ...(stop.pastAttempts ?? []),
+      { failedAt: (stop.failedAt ?? new Date()).toISOString(), reason: stop.failureReason!, photoUrl: stop.failurePhotoUrl, note: stop.failureNote, address: stop.address },
+    ];
+    const res = await this.stops.update(
+      { id: stopId, status: StopStatus.FAILED, followUp: FollowUp.DECIDING },
+      {
+        status: StopStatus.PENDING,
+        attempt: stop.attempt + 1,
+        pastAttempts: past,
+        followUp: FollowUp.RETRY,
+        followUpBy: 'Client',
+        followUpDeadline: null,
+        retryFee: this.stopFee(d, g.retryFeePct),
+        failedAt: null,
+        failureReason: null,
+        failurePhotoUrl: null,
+        failureNote: null,
+        failureLat: null,
+        failureLng: null,
+        arrivedAt: null,
+        calledAt: null,
+        callCount: 0,
+        helpRequestedAt: null,
+        helpAnswer: null,
+        waitUntil: null,
+        ...(dto.recipientPhone?.trim() ? { recipientPhone: dto.recipientPhone.trim() } : {}),
+        ...(dto.details?.trim() ? { details: dto.details.trim() } : {}),
+        ...(moved ? { lat: dto.lat!, lng: dto.lng!, address: dto.address!.trim(), commune: nearestCommune(dto.lat!, dto.lng!) } : {}),
+      },
+    );
+    if (!res.affected) throw new ConflictException('Le colis vient de changer d’état : réessayez');
+    await this.refreshFees(id);
+    if (d.driverId) {
+      const body = `${stop.recipientName}${moved ? ` · nouvelle adresse : ${dto.address!.trim()}` : ''}${dto.recipientPhone ? ` · nouveau numéro` : ''}. Appelez le destinataire avant d’y retourner.`;
+      this.tracking.emitToUser(d.driverId, 'stop:retry', { deliveryId: id, stopId, recipientName: stop.recipientName });
+      this.push.send([d.driverId], 'UPDATED', { title: 'Nouvelle tentative demandée', body, deliveryId: id });
+    }
+    return this.notify(await this.findOne(id, true));
+  }
+
+  /** Le colis non livré sera rapporté à l'expéditeur (retour facturé) */
+  private async setReturn(d: Delivery, stop: DeliveryStop, by: string) {
+    const res = await this.stops.update(
+      { id: stop.id, status: StopStatus.FAILED, followUp: FollowUp.DECIDING },
+      { followUp: FollowUp.RETURN, followUpBy: by, followUpDeadline: null, returnFee: this.stopFee(d, this.settings.pricing.returnFeePct) },
+    );
+    if (!res.affected) return false;
+    await this.refreshFees(d.id);
+    if (d.driverId) {
+      this.tracking.emitToUser(d.driverId, 'stop:return', { deliveryId: d.id, stopId: stop.id, recipientName: stop.recipientName });
+      this.push.send([d.driverId], 'UPDATED', { title: 'Colis à rapporter', body: `${stop.recipientName} : rapportez le colis à l’expéditeur`, deliveryId: d.id });
+    }
+    return true;
+  }
+
+  /** Échecs sans choix de l'expéditeur dans le délai : retour automatique */
+  private async autoReturns() {
+    const due = await this.stops.find({ where: { status: StopStatus.FAILED, followUp: FollowUp.DECIDING, followUpDeadline: LessThan(new Date()) }, take: 100 });
+    for (const s of due) {
+      try {
+        const d = await this.findOne(s.deliveryId);
+        if (!(await this.setReturn(d, s, 'Automatique (sans réponse de l’expéditeur)'))) continue;
+        this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Colis rapporté', body: `${s.recipientName} : sans réponse de votre part, le colis vous est rapporté`, deliveryId: d.id });
+        await this.afterStop(d.id);
+      } catch (e) {
+        this.logger.warn(`Retour automatique impossible (${s.id}) : ${(e as Error).message}`);
+      }
+    }
+  }
+
+  /** Part du prix d'un arrêt × [pct] %, arrondie aux 50 F supérieurs (arrêts retirés avant la récupération exclus) */
+  private stopFee(d: Delivery, pct: number) {
+    if (!pct || pct <= 0) return 0;
+    const counted = d.stops.filter(
+      (s) => !(s.status === StopStatus.CANCELLED && (!d.pickedUpAt || (s.cancelledAt && s.cancelledAt < d.pickedUpAt))),
+    ).length;
+    const share = d.price / Math.max(1, counted);
+    return Math.ceil((share * pct) / 100 / 50) * 50;
+  }
+
+  /** Total des frais ajoutés (retours, nouvelles tentatives) et commission ajustée */
+  private async refreshFees(id: string) {
+    const [{ total }] = await this.stops.query(
+      `SELECT COALESCE(sum("returnFee" + "retryFee"), 0)::int AS total FROM delivery_stops WHERE "deliveryId" = $1`,
+      [id],
+    );
+    await this.repo.update(id, { extraFees: total });
+    await this.billing.recompute(id);
+  }
+
+  /** Taux d'échec d'un livreur sur 7 jours : alerte au back-office au-delà du seuil (une fois par jour) */
+  private failAlerted = new Map<string, number>();
+  private async checkFailRate(driverId: string, name: string, companyId: string | null) {
+    const pct = this.settings.pricing.failAlertPct;
+    if (!pct) return;
+    const last = this.failAlerted.get(driverId) ?? 0;
+    if (Date.now() - last < 24 * 3600_000) return;
+    const [r] = await this.repo.query(
+      `SELECT count(*) FILTER (WHERE s.status = 'FAILED')::int + COALESCE(sum(jsonb_array_length(COALESCE(s."pastAttempts", '[]'::jsonb))), 0)::int AS failed,
+              count(*) FILTER (WHERE s.status IN ('FAILED', 'DELIVERED'))::int + COALESCE(sum(jsonb_array_length(COALESCE(s."pastAttempts", '[]'::jsonb))), 0)::int AS done
+         FROM delivery_stops s JOIN deliveries d ON d.id = s."deliveryId"
+        WHERE d."driverId" = $1 AND COALESCE(s."failedAt", s."deliveredAt") >= now() - interval '7 days'`,
+      [driverId],
+    );
+    if (r.failed < 3 || r.done < 5 || r.failed * 100 < pct * r.done) return;
+    this.failAlerted.set(driverId, Date.now());
+    this.push.office({ companyId, sa: true }, 'FAILED', {
+      title: 'Taux d’échec élevé',
+      body: `${name} : ${r.failed} échecs sur ${r.done} livraisons en 7 jours (${Math.round((r.failed * 100) / r.done)} %). Vérifiez ses signalements.`,
+      link: `/livreurs/${driverId}`,
+    });
   }
 
   /** Refuse les propositions de prix encore en attente sur une course (prise, annulée ou expirée) et prévient leurs livreurs */

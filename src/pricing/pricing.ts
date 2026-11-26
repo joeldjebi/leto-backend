@@ -59,6 +59,16 @@ export interface PricingGrid {
   deliveryCodeEnabled: boolean;
   /** Sans réponse de l'expéditeur, l'annulation signalée par le livreur est acceptée après ces minutes */
   cancelRequestAutoMin: number;
+  /** Échec ou arrêt annulé après la récupération : retour à l'expéditeur facturé (% du prix de l'arrêt) */
+  returnFeePct: number;
+  /** Nouvelle tentative après un échec : prix en % du prix de l'arrêt (70 = 30 % de réduction) */
+  retryFeePct: number;
+  /** Après un échec, l'expéditeur choisit (nouvelle tentative ou retour) ; sans réponse : retour après ces minutes */
+  followUpAutoMin: number;
+  /** Le livreur doit appeler chaque destinataire avant de partir avec les colis */
+  preCallRequired: boolean;
+  /** Alerte au back-office quand le taux d'échec d'un livreur dépasse ce % sur 7 jours (0 = jamais) */
+  failAlertPct: number;
   /** Commande sans livreur : expirée (annulée automatiquement) après ces minutes ; 0 = jamais */
   orderExpiryMin: number;
   /** Tournées : réduction (%) par arrêt au-delà du premier, plafonnée */
@@ -171,6 +181,11 @@ export const defaultGrid = (): PricingGrid => ({
   returnCodeEnabled: false,
   deliveryCodeEnabled: true,
   cancelRequestAutoMin: 10,
+  returnFeePct: 50,
+  retryFeePct: 70,
+  followUpAutoMin: 10,
+  preCallRequired: true,
+  failAlertPct: 15,
   orderExpiryMin: 30,
   multiStopDiscountPct: 5,
   multiStopDiscountMaxPct: 25,
