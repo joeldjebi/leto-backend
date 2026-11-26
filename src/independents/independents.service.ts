@@ -59,6 +59,9 @@ const LINK_TTL_S = 15 * 60;
 /** Rappel avant la fin de validité du permis et de l'assurance */
 export const EXPIRY_WARN_DAYS = 30;
 const EXPIRY_CHECK_MS = 60 * 60_000;
+/** Livreurs validés : une seule notification aux entreprises par période */
+const POOL_NOTIFY_MS = Number(process.env.POOL_NOTIFY_SEC ?? 180) * 1000;
+const VEHICLE_FR: Record<string, string> = { MOTO: 'Moto', CAR: 'Voiture', CARGO: 'Cargo' };
 
 /** Date du jour (AAAA-MM-JJ, heure d'Abidjan = UTC) */
 export const today = (offsetDays = 0) => new Date(Date.now() + offsetDays * DAY_MS).toISOString().slice(0, 10);
@@ -133,6 +136,8 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
   private cfg: IndependentsConfig = { ...DEFAULT };
   private logger = new Logger(IndependentsService.name);
   private expiryTimer?: NodeJS.Timeout;
+  private poolQueue = new Set<string>();
+  private poolTimer?: NodeJS.Timeout;
 
   constructor(
     private db: DataSource,
@@ -165,6 +170,41 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
 
   onModuleDestroy() {
     if (this.expiryTimer) clearInterval(this.expiryTimer);
+    if (this.poolTimer) clearTimeout(this.poolTimer);
+  }
+
+  /** Nouveau livreur dans le vivier : les entreprises sont prévenues, regroupé sur quelques minutes */
+  private queuePoolNotice(profileId: string) {
+    this.poolQueue.add(profileId);
+    if (this.poolTimer) return;
+    this.poolTimer = setTimeout(() => {
+      this.poolTimer = undefined;
+      this.flushPoolNotice().catch((e) => this.logger.warn(`Notification du vivier : ${e}`));
+    }, POOL_NOTIFY_MS);
+    this.poolTimer.unref();
+  }
+
+  async flushPoolNotice() {
+    const ids = [...this.poolQueue];
+    this.poolQueue.clear();
+    if (!ids.length || !this.cfg.enabled) return;
+    // Toujours libres et validés (pas rattachés ni suspendus entre-temps)
+    const rows: { name: string; vehicleType: string | null; commune: string | null }[] = await this.db.query(
+      `SELECT u.name, p."vehicleType", p.commune FROM independent_profiles p JOIN users u ON u.id = p."userId"
+        WHERE p.id = ANY($1::uuid[]) AND p.status = 'APPROVED' AND p."affiliatedCompanyId" IS NULL AND u.active
+        ORDER BY p."reviewedAt"`,
+      [ids],
+    );
+    if (!rows.length) return;
+    const describe = (r: (typeof rows)[number]) => [r.name, r.vehicleType ? VEHICLE_FR[r.vehicleType] : null, r.commune].filter(Boolean).join(' · ');
+    const title = rows.length === 1 ? 'Nouveau livreur indépendant disponible' : `${rows.length} nouveaux livreurs indépendants disponibles`;
+    const names = rows.slice(0, 3).map((r) => r.name).join(', ');
+    const body = rows.length === 1 ? `${describe(rows[0])}. Invitez-le depuis le vivier.` : `${names}${rows.length > 3 ? ` et ${rows.length - 3} autre(s)` : ''}. Invitez-les depuis le vivier.`;
+    const companies: { id: string }[] = await this.db.query(`SELECT id FROM companies WHERE NOT independent AND active AND status = 'APPROVED'`);
+    for (const c of companies) {
+      this.notify.office({ companyId: c.id }, 'POOL', { title, body, link: '/independants' });
+      this.tracking.emitToCompany(c.id, 'affiliations:changed', {});
+    }
   }
 
   /** Fin de la période de transition */
@@ -445,8 +485,10 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     return this.one(id);
   }
 
-  approve(id: string, by: string) {
-    return this.review(id, by, IndependentStatus.APPROVED, 'APPROVED', [IndependentStatus.PENDING, IndependentStatus.REJECTED]);
+  async approve(id: string, by: string) {
+    const r = await this.review(id, by, IndependentStatus.APPROVED, 'APPROVED', [IndependentStatus.PENDING, IndependentStatus.REJECTED]);
+    this.queuePoolNotice(id);
+    return r;
   }
   reject(id: string, by: string, note: string) {
     if (!note?.trim()) throw new BadRequestException('Motif du refus obligatoire');

@@ -59,6 +59,18 @@ export class AffiliationsController {
     return this.service.forCompany(user.companyId);
   }
 
+  @Get('company/pool-news')
+  @Roles(Role.COMPANY)
+  poolNews(@CurrentUser() user: AuthUser) {
+    return this.service.poolNews(user.companyId);
+  }
+
+  @Post('company/pool-seen')
+  @Roles(Role.COMPANY)
+  poolSeen(@CurrentUser() user: AuthUser) {
+    return this.service.poolSeen(user.companyId);
+  }
+
   @Put('company/rate')
   @Roles(Role.COMPANY)
   async rate(@CurrentUser() user: AuthUser, @Body() dto: RateDto) {

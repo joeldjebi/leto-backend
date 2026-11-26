@@ -59,6 +59,7 @@ export class AffiliationsService {
     if (!company || company.independent) throw new ForbiddenException('Réservé aux entreprises de livraison');
     const pool = await this.db.query(
       `SELECT p.id, u.name, p."selfieUrl", p.commune, p."vehicleType", p."vehicleBrand", p."vehiclePlate", p."legacyUntil", p."reviewedAt",
+              (p."reviewedAt" > coalesce($2::timestamptz, now() - interval '7 days')) AS "isNew",
               p."idFrontUrl", p."idBackUrl", p."licenseUrl", p."registrationUrl", p."insuranceUrl", p."licenseExpiresOn", p."insuranceExpiresOn",
               u."ratingAvg", u."ratingCount", (u."lastLocationAt" > now() - interval '2 minutes') AS online,
               (SELECT count(*)::int FROM deliveries d WHERE d."driverId" = u.id AND d.status = 'DELIVERED') AS completed,
@@ -67,7 +68,7 @@ export class AffiliationsService {
         WHERE p.status = 'APPROVED' AND p."affiliatedCompanyId" IS NULL AND u.active
         ORDER BY online DESC, completed DESC
         LIMIT 500`,
-      [companyId],
+      [companyId, company.liPoolSeenAt],
     );
     const mine = await this.db.query(
       `SELECT p.id, u.id AS "userId", u.name, u.phone, p."selfieUrl", p.commune, p."vehicleType", p."vehiclePlate",
@@ -99,7 +100,7 @@ export class AffiliationsService {
         return {
           id: r.id, name: r.name, selfieUrl: r.selfieUrl, commune: r.commune, vehicleType: r.vehicleType, vehicleBrand: r.vehicleBrand,
           plate: maskPlate(r.vehiclePlate), legacyUntil: r.legacyUntil, reviewedAt: r.reviewedAt,
-          ratingAvg: r.ratingAvg, ratingCount: r.ratingCount, online: r.online, completed: r.completed, inviteId: r.inviteId,
+          ratingAvg: r.ratingAvg, ratingCount: r.ratingCount, online: r.online, completed: r.completed, inviteId: r.inviteId, isNew: r.isNew,
           // Vérifié par LETO à la validation du dossier ; le permis et l'assurance avec leur validité
           verified: {
             identity: !!(r.idFrontUrl && r.idBackUrl),
@@ -116,6 +117,27 @@ export class AffiliationsService {
       })),
       invites: sent,
     };
+  }
+
+  /** Nouveaux livreurs du vivier depuis la dernière visite (7 derniers jours à la première visite) */
+  async poolNews(companyId: string) {
+    const company = await this.companies.findOneBy({ id: companyId });
+    if (!company || company.independent) return { count: 0, names: [] };
+    const rows: { name: string }[] = await this.db.query(
+      `SELECT u.name FROM independent_profiles p JOIN users u ON u.id = p."userId"
+        WHERE p.status = 'APPROVED' AND p."affiliatedCompanyId" IS NULL AND u.active
+          AND p."reviewedAt" > coalesce($1::timestamptz, now() - interval '7 days')
+        ORDER BY p."reviewedAt" DESC`,
+      [company.liPoolSeenAt],
+    );
+    return { count: rows.length, names: rows.slice(0, 3).map((r) => r.name) };
+  }
+
+  /** Vivier consulté : le bandeau disparaît pour tous les gérants de l'entreprise */
+  async poolSeen(companyId: string) {
+    await this.companies.update(companyId, { liPoolSeenAt: new Date() });
+    this.tracking.emitToCompany(companyId, 'affiliations:changed', { poolSeen: true });
+    return { count: 0, names: [] };
   }
 
   /** L'entreprise fixe sa commission sur ses LI ; les LI déjà rattachés doivent accepter le nouveau taux */

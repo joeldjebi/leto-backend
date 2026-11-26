@@ -66,6 +66,10 @@ export class Company {
   @Column({ type: 'double precision', nullable: true })
   liCommissionValue: number | null;
 
+  /** Dernière visite du vivier des livreurs indépendants (bandeau « nouveaux livreurs ») */
+  @Column({ type: 'timestamptz', nullable: true })
+  liPoolSeenAt: Date | null;
+
   @CreateDateColumn()
   createdAt: Date;
 }
