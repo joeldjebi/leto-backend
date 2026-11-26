@@ -1,3 +1,4 @@
+import { NotifyService } from '../notifications/notify.service';
 import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { Role } from '../users/user.entity';
@@ -17,6 +18,7 @@ export class DeliveriesController {
     private plan: PlanService,
     private dispatch: DispatchService,
     @InjectRepository(User) private users: Repository<User>,
+    private notify: NotifyService,
   ) {}
 
   private async nameOf(user: AuthUser) {
@@ -130,6 +132,13 @@ export class DeliveriesController {
   @Roles(Role.DRIVER)
   available(@CurrentUser() user: AuthUser) {
     return this.service.available(user);
+  }
+
+  /** Alertes de nouvelle course encore valables (renvoyées si l'app était déconnectée) */
+  @Get('alerts')
+  @Roles(Role.DRIVER)
+  alerts(@CurrentUser() user: AuthUser) {
+    return this.dispatch.pendingAlerts(user.sub).map((p) => ({ id: `replay-${p.deliveryId}`, type: 'NEW_ORDER', sound: this.notify.soundFor('NEW_ORDER'), ...p }));
   }
 
   @Post(':id/decline-assignment')

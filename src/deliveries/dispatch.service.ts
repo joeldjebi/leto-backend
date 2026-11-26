@@ -52,7 +52,7 @@ interface Candidate {
 export class DispatchService implements OnModuleInit, OnModuleDestroy {
   private logger = new Logger('Répartition');
   /** Courses en cours de répartition : livreurs déjà prévenus, prochaine vague */
-  private waves = new Map<string, { notified: Set<string>; wave: number; timer?: NodeJS.Timeout }>();
+  private waves = new Map<string, { notified: Set<string>; wave: number; timer?: NodeJS.Timeout; sent: Map<string, Record<string, unknown>> }>();
   private sweeper?: NodeJS.Timeout;
 
   constructor(
@@ -81,7 +81,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
   /** Nouvelle commande (ou commande ouverte à tous) : première vague tout de suite */
   async start(deliveryId: string, rules: Rules = this.settings.pricing) {
     this.stop(deliveryId);
-    this.waves.set(deliveryId, { notified: new Set(), wave: 0 });
+    this.waves.set(deliveryId, { notified: new Set(), wave: 0, sent: new Map() });
     await this.nextWave(deliveryId, rules).catch((e) => this.logger.warn(`Vague : ${(e as Error).message}`));
   }
 
@@ -90,6 +90,20 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
     const w = this.waves.get(deliveryId);
     if (w?.timer) clearTimeout(w.timer);
     this.waves.delete(deliveryId);
+  }
+
+  /**
+   * Alertes de nouvelle course encore valables pour ce livreur : l'app les redemande au retour
+   * au premier plan et à chaque actualisation (une alerte envoyée pendant une coupure n'est pas perdue).
+   */
+  pendingAlerts(driverId: string) {
+    const now = Date.now();
+    const out: Record<string, unknown>[] = [];
+    for (const w of this.waves.values()) {
+      const p = w.sent.get(driverId);
+      if (p && Date.parse(String(p.expiresAt)) > now) out.push(p);
+    }
+    return out;
   }
 
   /** Le livreur voit-il cette course dans sa liste ? (pas encore prévenu pendant les vagues : non) */
@@ -135,7 +149,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
       .execute();
     for (const c of batch) {
       w.notified.add(c.id);
-      this.push.send([c.id], 'NEW_ORDER', {
+      const payload = {
         title: `${c.match?.kind === 'ROUTE' ? 'Sur votre trajet · ' : ''}Nouvelle course · ${money(d.price)}`,
         body: `Départ ${d.pickupCommune ?? 'à proximité'} (à ${c.km} km)${stops.length > 1 ? ` · ${stops.length} arrêts` : ''}`,
         deliveryId,
@@ -144,7 +158,10 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
         busy: c.courses.length,
         wave: w.wave,
         expiresAt,
-      });
+      };
+      // Gardée pour la renvoyer si l'app n'était pas connectée (iPhone en arrière-plan, réseau coupé)
+      w.sent.set(c.id, payload);
+      this.push.send([c.id], 'NEW_ORDER', payload);
     }
     // Les livreurs prévenus voient maintenant la course dans leur liste
     for (const c of batch) this.tracking.emitToUser(c.id, 'deliveries:changed', {});

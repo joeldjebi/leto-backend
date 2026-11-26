@@ -108,6 +108,12 @@ export class NotifyService implements OnModuleInit {
     return { sounds: [...BUILTIN, ...this.cfg.custom], events: this.cfg.events, labels: SOUND_EVENTS };
   }
 
+  /** Son d'un événement (id + fichier), pour une alerte renvoyée hors temps réel */
+  soundFor(event: SoundEvent) {
+    const s = this.sound(event);
+    return { id: s.id, url: s.url };
+  }
+
   private sound(event: SoundEvent): Sound {
     const id = this.cfg.events[event];
     return [...BUILTIN, ...this.cfg.custom].find((s) => s.id === id) ?? BUILTIN.find((s) => s.id === DEFAULT_EVENTS[event])!;
