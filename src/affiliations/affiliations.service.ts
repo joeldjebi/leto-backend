@@ -4,11 +4,19 @@ import { DataSource, EntityManager, Repository } from 'typeorm';
 import { BillingService } from '../billing/billing.service';
 import { Company } from '../companies/company.entity';
 import { money } from '../countries/phone';
-import { IndependentProfile, IndependentStatus } from '../independents/independent-profile.entity';
-import { IndependentsService } from '../independents/independents.service';
+import { randomUUID } from 'crypto';
+import { DOC_FIELDS, DOC_LABEL, IndependentProfile, IndependentStatus, RENEWABLE, RenewableField } from '../independents/independent-profile.entity';
+import { docsState, IndependentsService } from '../independents/independents.service';
 import { NotifyService } from '../notifications/notify.service';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { AffiliationInvite, CompanyEarning, EarningType, InviteStatus, RuleType, Withdrawal, WithdrawalStatus } from './affiliation.entities';
+
+/** Immatriculation partiellement masquée dans le vivier : « •••• AB 01 » */
+const maskPlate = (plate: string | null) => {
+  if (!plate) return null;
+  let left = plate.replace(/\s/g, '').length - 4; // les 4 derniers caractères restent visibles
+  return [...plate].map((ch) => (ch !== ' ' && left-- > 0 ? '•' : ch)).join('');
+};
 
 const ruleLabel = (type: RuleType | null, value: number | null) =>
   type == null || value == null ? null : type === 'PERCENT' ? `${value} %` : money(value);
@@ -50,7 +58,8 @@ export class AffiliationsService {
     const company = await this.companies.findOneBy({ id: companyId });
     if (!company || company.independent) throw new ForbiddenException('Réservé aux entreprises de livraison');
     const pool = await this.db.query(
-      `SELECT p.id, u.name, p."selfieUrl", p.commune, p."vehicleType", p."legacyUntil", p."reviewedAt",
+      `SELECT p.id, u.name, p."selfieUrl", p.commune, p."vehicleType", p."vehicleBrand", p."vehiclePlate", p."legacyUntil", p."reviewedAt",
+              p."idFrontUrl", p."idBackUrl", p."licenseUrl", p."registrationUrl", p."insuranceUrl", p."licenseExpiresOn", p."insuranceExpiresOn",
               u."ratingAvg", u."ratingCount", (u."lastLocationAt" > now() - interval '2 minutes') AS online,
               (SELECT count(*)::int FROM deliveries d WHERE d."driverId" = u.id AND d.status = 'DELIVERED') AS completed,
               (SELECT i.id FROM affiliation_invites i WHERE i."profileId" = p.id AND i."companyId" = $1 AND i.status = 'PENDING' AND i.kind = 'JOIN' LIMIT 1) AS "inviteId"
@@ -62,6 +71,8 @@ export class AffiliationsService {
     );
     const mine = await this.db.query(
       `SELECT p.id, u.id AS "userId", u.name, u.phone, p."selfieUrl", p.commune, p."vehicleType", p."vehiclePlate",
+              p."licenseExpiresOn", p."insuranceExpiresOn", jsonb_array_length(p.renewals)::int AS renewals,
+              (SELECT count(*)::int FROM jsonb_array_elements(p."updateRequests") r WHERE (r->>'companyId')::uuid = $1) AS "updateRequests",
               p."affiliatedAt", p."affCommissionType", p."affCommissionValue", c.credit,
               u."ratingAvg", u."ratingCount", (u."lastLocationAt" > now() - interval '2 minutes') AS online,
               (SELECT count(*)::int FROM deliveries d WHERE d."driverId" = u.id AND d.status = 'DELIVERED' AND d."affiliateCompanyId" = $1) AS completed,
@@ -83,9 +94,24 @@ export class AffiliationsService {
     return {
       rate: company.liCommissionType ? { type: company.liCommissionType, value: company.liCommissionValue } : null,
       caps: this.caps(),
-      pool,
+      pool: pool.map((r: any) => {
+        const docs = docsState(r);
+        return {
+          id: r.id, name: r.name, selfieUrl: r.selfieUrl, commune: r.commune, vehicleType: r.vehicleType, vehicleBrand: r.vehicleBrand,
+          plate: maskPlate(r.vehiclePlate), legacyUntil: r.legacyUntil, reviewedAt: r.reviewedAt,
+          ratingAvg: r.ratingAvg, ratingCount: r.ratingCount, online: r.online, completed: r.completed, inviteId: r.inviteId,
+          // Vérifié par LETO à la validation du dossier ; le permis et l'assurance avec leur validité
+          verified: {
+            identity: !!(r.idFrontUrl && r.idBackUrl),
+            license: r.licenseUrl ? docs.license.state : null,
+            registration: !!r.registrationUrl,
+            insurance: r.insuranceUrl ? docs.insurance.state : null,
+          },
+        };
+      }),
       mine: mine.map((r: any) => ({
         ...r,
+        docs: docsState(r),
         appliedRate: r.affCommissionType ? this.independents.capRule(r.affCommissionType, Number(r.affCommissionValue)) : null,
       })),
       invites: sent,
@@ -164,7 +190,14 @@ export class AffiliationsService {
     if (n > 0) throw new BadRequestException('Course en cours : terminez-la avant de mettre fin au rattachement');
     const companyId = p.affiliatedCompanyId;
     const company = await this.companies.findOneBy({ id: companyId });
-    await this.profiles.update(p.id, { affiliatedCompanyId: null, affiliatedAt: null, affCommissionType: null, affCommissionValue: null });
+    await this.profiles.update(p.id, {
+      affiliatedCompanyId: null,
+      affiliatedAt: null,
+      affCommissionType: null,
+      affCommissionValue: null,
+      updateRequests: (p.updateRequests ?? []).filter((r) => r.companyId !== companyId),
+    });
+    await this.independents.logEvent(p.id, { action: 'UNAFFILIATED', by: by.companyId ? company?.name : by.name, note: `Fin du partage du dossier avec ${company?.name ?? 'l’entreprise'}${reason?.trim() ? ` · ${reason.trim()}` : ''}` });
     await this.invites.update({ profileId: p.id, status: InviteStatus.PENDING, kind: 'RATE' }, { status: InviteStatus.CANCELLED, respondedAt: new Date() });
     const why = reason?.trim() ? ` : « ${reason.trim()} »` : '';
     if (by.companyId) {
@@ -174,6 +207,64 @@ export class AffiliationsService {
     }
     this.changed(companyId, p.userId);
     return { ok: true };
+  }
+
+  /** Dossier complet d'un LI rattaché (partagé à l'acceptation de l'invitation) ; chaque consultation est notée */
+  async dossier(companyId: string, profileId: string, viewer?: string) {
+    const p = await this.profiles.findOne({ where: { id: profileId }, relations: { user: true } });
+    if (!p || p.affiliatedCompanyId !== companyId) throw new NotFoundException('Dossier visible uniquement pour vos livreurs rattachés');
+    const company = await this.companies.findOneBy({ id: companyId });
+    if (viewer) {
+      // Une trace par entreprise et par heure suffit
+      const last = [...p.history].reverse().find((h) => h.action === 'VIEWED' && h.by === company?.name);
+      if (!last || Date.now() - new Date(last.at).getTime() > 3_600_000) {
+        await this.independents.logEvent(p.id, { action: 'VIEWED', by: company?.name, note: `Dossier consulté par ${viewer}` });
+      }
+    }
+    const full = this.independents.withLinks(p);
+    return {
+      id: p.id,
+      name: p.user.name,
+      phone: p.user.phone,
+      avatarUrl: p.user.avatarUrl ?? p.selfieUrl,
+      birthDate: p.birthDate,
+      commune: p.commune,
+      address: p.address,
+      idType: p.idType,
+      idNumber: p.idNumber,
+      emergencyName: p.emergencyName,
+      emergencyPhone: p.emergencyPhone,
+      vehicleType: p.vehicleType,
+      vehicleBrand: p.vehicleBrand,
+      vehiclePlate: p.vehiclePlate,
+      licenseNumber: p.licenseNumber,
+      approvedAt: p.reviewedAt,
+      affiliatedAt: p.affiliatedAt,
+      links: Object.fromEntries(DOC_FIELDS.map((k) => [k, full.links[k]])),
+      docs: full.docs,
+      // Renouvellements en attente : l'entreprise voit lesquels, LETO les vérifie
+      renewals: full.renewals.map((r) => ({ field: r.field, label: r.label, expiresOn: r.expiresOn, at: r.at })),
+      updateRequests: full.updateRequests.filter((r) => r.companyId === companyId),
+      views: p.history.filter((h) => h.action === 'VIEWED' || h.action === 'AFFILIATED' || h.action === 'UPDATE_REQUESTED' || h.action.startsWith('RENEWAL') || h.action === 'EXPIRED').slice(-20).reverse(),
+    };
+  }
+
+  /** L'entreprise demande au LI de renvoyer un document (flou, dépassé…) */
+  async requestUpdate(companyId: string, profileId: string, field: RenewableField, note: string | undefined, by: string) {
+    if (!RENEWABLE.includes(field)) throw new BadRequestException('Document inconnu');
+    const p = await this.profiles.findOneBy({ id: profileId });
+    if (!p || p.affiliatedCompanyId !== companyId) throw new NotFoundException('Livreur introuvable');
+    const company = await this.companies.findOneBy({ id: companyId });
+    const req = { id: randomUUID(), field, note: note?.trim() || null, companyId, by, at: new Date().toISOString() };
+    await this.profiles.update(p.id, { updateRequests: [...(p.updateRequests ?? []).filter((r) => r.field !== field), req] });
+    await this.independents.logEvent(p.id, { action: 'UPDATE_REQUESTED', by: company?.name, note: `${DOC_LABEL[field]}${req.note ? ` · ${req.note}` : ''}` });
+    this.push.send([p.userId], 'UPDATED', {
+      title: 'Document à mettre à jour',
+      body: `${company?.name ?? 'Votre entreprise'} vous demande de renvoyer : ${DOC_LABEL[field]}${req.note ? ` (« ${req.note} »)` : ''}. Rubrique « Mes documents ».`,
+    });
+    this.tracking.emitToUser(p.userId, 'independent:docs', {});
+    this.changed(companyId);
+    return this.dossier(companyId, profileId);
   }
 
   // ---------- Livreur indépendant ----------
@@ -246,6 +337,9 @@ export class AffiliationsService {
       await m.update(AffiliationInvite, inv.id, { status: InviteStatus.ACCEPTED, respondedAt: new Date() });
     });
     const [{ name }] = await this.db.query(`SELECT name FROM users WHERE id = $1`, [userId]);
+    if (inv.kind === 'JOIN') {
+      await this.independents.logEvent(p.id, { action: 'AFFILIATED', by: company.name, note: 'Dossier complet partagé avec l’entreprise (accord du livreur)' });
+    }
     this.push.office({ companyId: inv.companyId }, 'AFFILIATION', {
       title: inv.kind === 'JOIN' ? 'Nouveau livreur indépendant' : 'Nouvelle commission acceptée',
       body: inv.kind === 'JOIN' ? `${name} a accepté de rejoindre votre entreprise` : `${name} accepte ${ruleLabel(inv.commissionType, inv.commissionValue)} par course`,

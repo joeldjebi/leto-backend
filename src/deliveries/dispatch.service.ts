@@ -1,7 +1,7 @@
 import { money } from '../countries/phone';
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IndependentsService } from '../independents/independents.service';
+import { DOCS_VALID_SQL, IndependentsService } from '../independents/independents.service';
 import { DataSource, In, LessThan, Repository } from 'typeorm';
 import { GeoService } from '../geo/geo.service';
 import { NotifyService } from '../notifications/notify.service';
@@ -152,7 +152,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
             -- Livreurs des entreprises (de l'entreprise visée, s'il y en a une)
             (NOT c.independent AND NOT $3 AND ($2::uuid IS NULL OR u."companyId" = $2))
             -- Livreurs indépendants validés : rattachés à l'entreprise visée, ou course ouverte (rattachés ou en transition) ; jamais de paiement à la livraison
-            OR ($7 AND c.independent AND p.status = 'APPROVED'
+            OR ($7 AND c.independent AND p.status = 'APPROVED' AND ${DOCS_VALID_SQL('p')}
                 AND NOT EXISTS (SELECT 1 FROM delivery_stops cs WHERE cs."deliveryId" = $8 AND cs."codAmount" > 0)
                 AND (p."affiliatedCompanyId" = $2
                      OR ($2::uuid IS NULL AND (p."affiliatedCompanyId" IS NOT NULL OR p."legacyUntil" > now()))))

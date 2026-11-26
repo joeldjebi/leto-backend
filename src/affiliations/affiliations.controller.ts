@@ -6,6 +6,7 @@ import { Repository } from 'typeorm';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
 import { Role, User } from '../users/user.entity';
+import { RENEWABLE, RenewableField } from '../independents/independent-profile.entity';
 import { WithdrawalStatus } from './affiliation.entities';
 import { AffiliationsService } from './affiliations.service';
 
@@ -19,6 +20,10 @@ class InviteDto {
 }
 class ReasonDto {
   @IsOptional() @IsString() @MaxLength(300) reason?: string;
+}
+class UpdateRequestDto {
+  @IsIn(RENEWABLE as unknown as string[], { message: 'Document inconnu' }) field: RenewableField;
+  @IsOptional() @IsString() @MaxLength(300) note?: string;
 }
 class WithdrawDto {
   @Type(() => Number) @IsInt({ message: 'Montant entier attendu' }) @Min(1) amount: number;
@@ -77,6 +82,18 @@ export class AffiliationsController {
   async end(@CurrentUser() user: AuthUser, @Param('profileId', ParseUUIDPipe) profileId: string, @Body() dto: ReasonDto) {
     await this.service.end(profileId, { companyId: user.companyId, name: await this.nameOf(user) }, dto.reason);
     return this.service.forCompany(user.companyId);
+  }
+
+  @Get('drivers/:profileId/dossier')
+  @Roles(Role.COMPANY)
+  async dossier(@CurrentUser() user: AuthUser, @Param('profileId', ParseUUIDPipe) profileId: string) {
+    return this.service.dossier(user.companyId, profileId, await this.nameOf(user));
+  }
+
+  @Post('drivers/:profileId/request-update')
+  @Roles(Role.COMPANY)
+  async requestUpdate(@CurrentUser() user: AuthUser, @Param('profileId', ParseUUIDPipe) profileId: string, @Body() dto: UpdateRequestDto) {
+    return this.service.requestUpdate(user.companyId, profileId, dto.field, dto.note, await this.nameOf(user));
   }
 
   @Get('earnings')

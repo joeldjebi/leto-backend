@@ -1,7 +1,7 @@
 import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
 import { Body, Controller, Get, NotFoundException, Param, ParseUUIDPipe, Post, Put, Query, Res } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { IsBoolean, IsEnum, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import { IsBoolean, IsEnum, IsIn, IsNotEmpty, IsNumber, IsOptional, IsString, Matches, MaxLength, ValidateIf } from 'class-validator';
 import type { Response } from 'express';
 import { existsSync } from 'fs';
 import { Repository } from 'typeorm';
@@ -11,12 +11,13 @@ import {PersonDto} from '../common/dto';
 import { VehicleType } from '../pricing/pricing';
 import { StorageService } from '../storage/storage.service';
 import { Role, User } from '../users/user.entity';
-import { IndependentStatus } from './independent-profile.entity';
+import { IndependentStatus, RENEWABLE, RenewableField } from './independent-profile.entity';
 import { IndependentsService } from './independents.service';
 
 const SELFIE = /^\/uploads\/[0-9a-f-]{36}\.(jpg|png|webp|heic)$/;
 const DOC = /^\/identity\/[0-9a-f-]{36}\.(jpg|png|webp|heic)$/;
 const DOC_MSG = 'Photo invalide : prenez-la avec l’appareil photo de l’app';
+const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 class DossierDto {
   @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/, { message: 'Date de naissance : AAAA-MM-JJ' }) birthDate?: string;
@@ -37,7 +38,20 @@ class DossierDto {
   @IsOptional() @Matches(DOC, { message: DOC_MSG }) licenseUrl?: string;
   @IsOptional() @Matches(DOC, { message: DOC_MSG }) registrationUrl?: string;
   @IsOptional() @Matches(DOC, { message: DOC_MSG }) insuranceUrl?: string;
+  @IsOptional() @Matches(DATE, { message: 'Fin de validité du permis : AAAA-MM-JJ' }) licenseExpiresOn?: string;
+  @IsOptional() @Matches(DATE, { message: 'Fin de validité de l’assurance : AAAA-MM-JJ' }) insuranceExpiresOn?: string;
   @IsOptional() @IsBoolean() consent?: boolean;
+}
+
+class RenewalDto {
+  @IsIn(RENEWABLE as unknown as string[], { message: 'Document inconnu' }) field: RenewableField;
+  @IsOptional() @Matches(DOC, { message: DOC_MSG }) url?: string;
+  @IsOptional() @Matches(DATE, { message: 'Date de fin de validité : AAAA-MM-JJ' }) expiresOn?: string;
+}
+
+class ExpiryDto {
+  @IsOptional() @ValidateIf((_, v) => v !== null) @Matches(DATE, { message: 'Permis : AAAA-MM-JJ' }) licenseExpiresOn?: string | null;
+  @IsOptional() @ValidateIf((_, v) => v !== null) @Matches(DATE, { message: 'Assurance : AAAA-MM-JJ' }) insuranceExpiresOn?: string | null;
 }
 
 class ConfigDto {
@@ -98,6 +112,12 @@ export class IndependentsController {
     return this.service.update(user.sub, dto);
   }
 
+  @Post('me/renewals')
+  @Roles(Role.DRIVER)
+  renew(@CurrentUser() user: AuthUser, @Body() dto: RenewalDto) {
+    return this.service.submitRenewal(user.sub, dto);
+  }
+
   @Post('me/submit')
   @Roles(Role.DRIVER)
   submit(@CurrentUser() user: AuthUser) {
@@ -145,6 +165,24 @@ export class IndependentsController {
   @Roles(Role.SUPER_ADMIN)
   async suspend(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: NoteDto) {
     return this.service.suspend(id, await this.by(user), dto.note);
+  }
+
+  @Post(':id/renewals/:renewalId/approve')
+  @Roles(Role.SUPER_ADMIN)
+  async approveRenewal(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Param('renewalId', ParseUUIDPipe) rid: string) {
+    return this.service.approveRenewal(id, rid, await this.by(user));
+  }
+
+  @Post(':id/renewals/:renewalId/reject')
+  @Roles(Role.SUPER_ADMIN)
+  async rejectRenewal(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Param('renewalId', ParseUUIDPipe) rid: string, @Body() dto: NoteDto) {
+    return this.service.rejectRenewal(id, rid, await this.by(user), dto.note);
+  }
+
+  @Put(':id/expiry')
+  @Roles(Role.SUPER_ADMIN)
+  async expiry(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ExpiryDto) {
+    return this.service.setExpiry(id, dto, await this.by(user));
   }
 
   @Post(':id/reactivate')

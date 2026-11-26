@@ -1,15 +1,15 @@
 import { NotifyService } from '../notifications/notify.service';
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException, OnModuleInit } from '@nestjs/common';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import * as bcrypt from 'bcryptjs';
-import { createHmac, timingSafeEqual } from 'crypto';
+import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { DataSource, Repository } from 'typeorm';
 import { Company } from '../companies/company.entity';
 import { VehicleType } from '../pricing/pricing';
 import { Setting } from '../settings/setting.entity';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { normalizePlate, Role, User } from '../users/user.entity';
-import { DOC_FIELDS, IndependentEvent, IndependentProfile, IndependentStatus } from './independent-profile.entity';
+import { DOC_FIELDS, DOC_LABEL, EXPIRING, IndependentEvent, IndependentProfile, IndependentStatus, RENEWABLE, RenewableField, Renewal } from './independent-profile.entity';
 
 export type CommissionType = 'PERCENT' | 'FIXED';
 
@@ -56,6 +56,28 @@ const DEFAULT: IndependentsConfig = {
 const DAY_MS = 86_400_000;
 /** Durée des liens de lecture des pièces d'identité */
 const LINK_TTL_S = 15 * 60;
+/** Rappel avant la fin de validité du permis et de l'assurance */
+export const EXPIRY_WARN_DAYS = 30;
+const EXPIRY_CHECK_MS = 60 * 60_000;
+
+/** Date du jour (AAAA-MM-JJ, heure d'Abidjan = UTC) */
+export const today = (offsetDays = 0) => new Date(Date.now() + offsetDays * DAY_MS).toISOString().slice(0, 10);
+/** 2027-01-31 → 31/01/2027 */
+export const frDate = (d: string) => d.split('-').reverse().join('/');
+/** SQL : permis et assurance encore valides (date absente = pas encore renseignée, pas bloquant) */
+export const DOCS_VALID_SQL = (alias: string) =>
+  `(${alias}."licenseExpiresOn" IS NULL OR ${alias}."licenseExpiresOn" >= to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD'))
+   AND (${alias}."insuranceExpiresOn" IS NULL OR ${alias}."insuranceExpiresOn" >= to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD'))`;
+
+export type ExpiryState = 'OK' | 'SOON' | 'EXPIRED' | 'UNKNOWN';
+export const expiryState = (d: string | null): ExpiryState => (!d ? 'UNKNOWN' : d < today() ? 'EXPIRED' : d <= today(EXPIRY_WARN_DAYS) ? 'SOON' : 'OK');
+/** État du permis et de l'assurance */
+export const docsState = (p: { licenseExpiresOn: string | null; insuranceExpiresOn: string | null }) => ({
+  license: { expiresOn: p.licenseExpiresOn, state: expiryState(p.licenseExpiresOn) },
+  insurance: { expiresOn: p.insuranceExpiresOn, state: expiryState(p.insuranceExpiresOn) },
+});
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const validDate = (d: string) => DATE_RE.test(d) && !Number.isNaN(new Date(`${d}T00:00:00Z`).getTime()) && new Date(`${d}T00:00:00Z`).toISOString().startsWith(d);
 
 export interface DossierInput {
   birthDate?: string;
@@ -76,6 +98,8 @@ export interface DossierInput {
   licenseUrl?: string;
   registrationUrl?: string;
   insuranceUrl?: string;
+  licenseExpiresOn?: string;
+  insuranceExpiresOn?: string;
   consent?: boolean;
 }
 
@@ -96,6 +120,8 @@ const REQUIRED: [keyof IndependentProfile, string][] = [
   ['licenseUrl', 'permis de conduire'],
   ['registrationUrl', 'carte grise'],
   ['insuranceUrl', 'assurance'],
+  ['licenseExpiresOn', 'date de fin de validité du permis'],
+  ['insuranceExpiresOn', 'date de fin de validité de l’assurance'],
 ];
 
 /**
@@ -103,8 +129,10 @@ const REQUIRED: [keyof IndependentProfile, string][] = [
  * validation par LETO, règles et commission propres.
  */
 @Injectable()
-export class IndependentsService implements OnModuleInit {
+export class IndependentsService implements OnModuleInit, OnModuleDestroy {
   private cfg: IndependentsConfig = { ...DEFAULT };
+  private logger = new Logger(IndependentsService.name);
+  private expiryTimer?: NodeJS.Timeout;
 
   constructor(
     private db: DataSource,
@@ -128,6 +156,15 @@ export class IndependentsService implements OnModuleInit {
         [this.transitionEnd()],
       );
     }
+    // Permis et assurance : rappels avant la fin de validité, blocage le jour d'après
+    const run = () => this.checkExpiries().catch((e) => this.logger.warn(`Rappels d'expiration : ${e}`));
+    setTimeout(run, 20_000).unref();
+    this.expiryTimer = setInterval(run, EXPIRY_CHECK_MS);
+    this.expiryTimer.unref();
+  }
+
+  onModuleDestroy() {
+    if (this.expiryTimer) clearInterval(this.expiryTimer);
   }
 
   /** Fin de la période de transition */
@@ -161,7 +198,7 @@ export class IndependentsService implements OnModuleInit {
     if (!this.cfg.enabled) return new Map();
     const rows: { companyId: string; affiliatedCompanyId: string | null }[] = await this.db.query(
       `SELECT "companyId", "affiliatedCompanyId" FROM independent_profiles
-        WHERE status = 'APPROVED' AND ("affiliatedCompanyId" IS NOT NULL OR "legacyUntil" > now())`,
+        WHERE status = 'APPROVED' AND ("affiliatedCompanyId" IS NOT NULL OR "legacyUntil" > now()) AND ${DOCS_VALID_SQL('independent_profiles')}`,
     );
     return new Map(rows.map((r) => [r.companyId, r.affiliatedCompanyId]));
   }
@@ -231,10 +268,13 @@ export class IndependentsService implements OnModuleInit {
     if (!this.cfg.enabled) return 'Les livreurs indépendants sont désactivés par LETO pour le moment';
     const p = profile === undefined ? await this.profiles.findOneBy({ companyId }) : profile;
     switch (p?.status) {
-      case IndependentStatus.APPROVED:
+      case IndependentStatus.APPROVED: {
+        const expired = this.expiredText(p);
+        if (expired) return expired;
         if (p.affiliatedCompanyId) return null;
         if (p.legacyUntil && p.legacyUntil.getTime() > Date.now()) return null;
         return 'Rattachez-vous à une entreprise de livraison pour recevoir des courses : acceptez une invitation dans l’app';
+      }
       case IndependentStatus.PENDING:
         return 'Votre dossier est en cours de vérification par LETO';
       case IndependentStatus.REJECTED:
@@ -244,6 +284,15 @@ export class IndependentsService implements OnModuleInit {
       default:
         return 'Complétez et envoyez votre dossier pour commencer';
     }
+  }
+
+  /** Permis ou assurance expiré : message pour le livreur (null = documents valides) */
+  expiredText(p: IndependentProfile) {
+    const lic = expiryState(p.licenseExpiresOn) === 'EXPIRED';
+    const ins = expiryState(p.insuranceExpiresOn) === 'EXPIRED';
+    if (!lic && !ins) return null;
+    const what = lic && ins ? 'Votre permis et votre assurance ont expiré' : lic ? 'Votre permis a expiré' : 'Votre assurance a expiré';
+    return `${what} : envoyez le nouveau document dans l’app, rubrique « Mes documents »`;
   }
 
   /** Entreprises individuelles des LI validés (carte du client) */
@@ -301,6 +350,12 @@ export class IndependentsService implements OnModuleInit {
       if (v !== undefined) (p as unknown as Record<string, unknown>)[k] = typeof v === 'string' ? v.trim() || null : v;
     }
     if (p.vehiclePlate) p.vehiclePlate = p.vehiclePlate.toUpperCase();
+    for (const k of ['licenseExpiresOn', 'insuranceExpiresOn'] as const) {
+      const v = dto[k];
+      if (v === undefined) continue;
+      if (v) this.checkExpiryDate(v, k === 'licenseExpiresOn' ? 'Permis' : 'Assurance');
+      p[k] = v || null;
+    }
     if (dto.consent) p.consentAt = new Date();
     await this.profiles.save(p);
     if (dto.vehiclePlate !== undefined) await this.users.update(userId, { plate: normalizePlate(p.vehiclePlate) });
@@ -321,6 +376,8 @@ export class IndependentsService implements OnModuleInit {
     const missing = REQUIRED.filter(([k]) => !p[k]).map(([, label]) => label);
     if (missing.length) throw new BadRequestException(`Dossier incomplet : ${missing.join(', ')}`);
     if (!p.consentAt) throw new BadRequestException('Acceptez le traitement de vos données pour envoyer le dossier');
+    const expired = this.expiredText(p);
+    if (expired) throw new BadRequestException(expired.replace(/ : .*/, ' : prenez en photo le document en cours de validité'));
     p.status = IndependentStatus.PENDING;
     p.submittedAt = new Date();
     p.reviewNote = null;
@@ -343,6 +400,7 @@ export class IndependentsService implements OnModuleInit {
       `SELECT p.id, p.status, p."vehicleType", p."vehiclePlate", p.commune, p."submittedAt", p."reviewedAt", p."reviewNote", p."createdAt",
               u.id AS "userId", u.name, u.phone, u.active, u."lastLocationAt",
               c.id AS "companyId", c.credit, p."affiliatedCompanyId", p."legacyUntil",
+              p."licenseExpiresOn", p."insuranceExpiresOn", jsonb_array_length(p.renewals)::int AS renewals,
               (SELECT ac.name FROM companies ac WHERE ac.id = p."affiliatedCompanyId") AS "affiliatedCompanyName",
               (SELECT count(*)::int FROM deliveries d WHERE d."driverId" = u.id AND d.status = 'DELIVERED') AS completed
          FROM independent_profiles p
@@ -358,7 +416,9 @@ export class IndependentsService implements OnModuleInit {
               count(*) FILTER (WHERE status = 'APPROVED')::int AS approved,
               count(*) FILTER (WHERE status = 'REJECTED')::int AS rejected,
               count(*) FILTER (WHERE status = 'SUSPENDED')::int AS suspended,
-              count(*) FILTER (WHERE status = 'DRAFT')::int AS draft
+              count(*) FILTER (WHERE status = 'DRAFT')::int AS draft,
+              count(*) FILTER (WHERE jsonb_array_length(renewals) > 0)::int AS renewals,
+              count(*) FILTER (WHERE status IN ('APPROVED', 'SUSPENDED') AND (${DOCS_VALID_SQL('independent_profiles')}) IS NOT TRUE)::int AS expired
          FROM independent_profiles`,
     );
     return { items: rows, counts, config: this.config };
@@ -400,6 +460,178 @@ export class IndependentsService implements OnModuleInit {
     return this.review(id, by, IndependentStatus.APPROVED, 'REACTIVATED', [IndependentStatus.SUSPENDED]);
   }
 
+  // ---------- Documents : dates de validité, renouvellements ----------
+
+  private checkExpiryDate(d: string, what: string) {
+    if (!validDate(d)) throw new BadRequestException(`${what} : date de fin de validité invalide (AAAA-MM-JJ)`);
+    if (d < today()) throw new BadRequestException(`${what} déjà expiré : prenez en photo le document en cours de validité`);
+    if (d > today(366 * 15)) throw new BadRequestException(`${what} : date de fin de validité trop lointaine`);
+  }
+
+  /** Ajoute un événement à l'historique du dossier */
+  async logEvent(profileId: string, e: Omit<IndependentEvent, 'at'>) {
+    const event: IndependentEvent = { at: new Date().toISOString(), ...e };
+    await this.db.query(`UPDATE independent_profiles SET history = history || $2::jsonb WHERE id = $1`, [profileId, JSON.stringify([event])]);
+  }
+
+  /** Le LI envoie un document renouvelé (nouvelle photo et/ou nouvelle date), validé ensuite par LETO */
+  async submitRenewal(userId: string, dto: { field: RenewableField; url?: string; expiresOn?: string }) {
+    const p = await this.mine(userId);
+    if (p.status !== IndependentStatus.APPROVED && p.status !== IndependentStatus.SUSPENDED) {
+      throw new BadRequestException('Dossier pas encore validé : modifiez-le directement dans l’app');
+    }
+    if (!RENEWABLE.includes(dto.field)) throw new BadRequestException('Document inconnu');
+    const expiring = dto.field in EXPIRING;
+    if (expiring) {
+      if (!dto.expiresOn) throw new BadRequestException('Indiquez la date de fin de validité du document');
+      this.checkExpiryDate(dto.expiresOn, dto.field === 'licenseUrl' ? 'Permis' : 'Assurance');
+    }
+    if (!dto.url && !(expiring && p[dto.field])) throw new BadRequestException('Prenez le document en photo');
+    const r: Renewal = { id: randomUUID(), field: dto.field, url: dto.url ?? null, expiresOn: expiring ? dto.expiresOn! : null, at: new Date().toISOString() };
+    p.renewals = [...(p.renewals ?? []).filter((x) => x.field !== dto.field), r];
+    p.history = [...p.history, { at: r.at, action: 'RENEWAL_SENT', note: DOC_LABEL[dto.field] }];
+    await this.profiles.save(p);
+    this.tracking.server?.to('super-admin').emit('independents:changed', { id: p.id });
+    const who = await this.users.findOneBy({ id: userId });
+    this.notify.office({ sa: true }, 'INDEPENDENT', {
+      title: 'Document renouvelé',
+      body: `${who?.name ?? 'Un livreur indépendant'} a envoyé : ${DOC_LABEL[dto.field]}. À vérifier.`,
+      link: '/independants',
+    });
+    return this.withLinks(p);
+  }
+
+  private docsChanged(p: IndependentProfile) {
+    this.tracking.emitToUser(p.userId, 'independent:docs', {});
+    this.tracking.emitToUser(p.userId, 'deliveries:changed', {});
+    this.tracking.server?.to('super-admin').emit('independents:changed', { id: p.id });
+    if (p.affiliatedCompanyId) this.tracking.emitToCompany(p.affiliatedCompanyId, 'affiliations:changed', {});
+  }
+
+  /** LETO valide un document renouvelé : il remplace l'ancien */
+  async approveRenewal(id: string, renewalId: string, by: string) {
+    const p = await this.profiles.findOneBy({ id });
+    const r = p?.renewals?.find((x) => x.id === renewalId);
+    if (!p || !r) throw new NotFoundException('Document introuvable ou déjà traité');
+    if (r.url) p[r.field] = r.url;
+    const dateKey = EXPIRING[r.field as keyof typeof EXPIRING];
+    if (dateKey && r.expiresOn) {
+      p[dateKey] = r.expiresOn;
+      p.expiryNotices = (p.expiryNotices ?? []).filter((n) => !n.startsWith(`${r.field}:`));
+    }
+    p.renewals = p.renewals.filter((x) => x.id !== renewalId);
+    p.updateRequests = (p.updateRequests ?? []).filter((x) => x.field !== r.field);
+    p.history = [...p.history, { at: new Date().toISOString(), action: 'RENEWAL_APPROVED', by, note: `${DOC_LABEL[r.field]}${r.expiresOn ? ` · valable jusqu’au ${frDate(r.expiresOn)}` : ''}` }];
+    await this.profiles.save(p);
+    const unblocked = !this.expiredText(p);
+    this.notify.send([p.userId], 'CLIENT_UPDATE', {
+      title: 'Document validé',
+      body: `LETO a validé votre ${DOC_LABEL[r.field]}.${unblocked ? '' : ' Un autre document reste à renouveler.'}`,
+    });
+    if (p.affiliatedCompanyId) {
+      const who = await this.users.findOneBy({ id: p.userId });
+      this.notify.office({ companyId: p.affiliatedCompanyId }, 'AFFILIATION', {
+        title: 'Document renouvelé',
+        body: `${who?.name ?? 'Votre livreur'} : ${DOC_LABEL[r.field]} à jour${r.expiresOn ? `, valable jusqu’au ${frDate(r.expiresOn)}` : ''}`,
+        link: '/independants',
+      });
+    }
+    this.docsChanged(p);
+    return this.one(id);
+  }
+
+  async rejectRenewal(id: string, renewalId: string, by: string, note: string) {
+    if (!note?.trim()) throw new BadRequestException('Motif du refus obligatoire');
+    const p = await this.profiles.findOneBy({ id });
+    const r = p?.renewals?.find((x) => x.id === renewalId);
+    if (!p || !r) throw new NotFoundException('Document introuvable ou déjà traité');
+    p.renewals = p.renewals.filter((x) => x.id !== renewalId);
+    p.history = [...p.history, { at: new Date().toISOString(), action: 'RENEWAL_REJECTED', by, note: `${DOC_LABEL[r.field]} : ${note.trim()}` }];
+    await this.profiles.save(p);
+    this.notify.send([p.userId], 'UPDATED', { title: 'Document refusé', body: `${DOC_LABEL[r.field]} : « ${note.trim()} ». Renvoyez-le dans l’app, rubrique « Mes documents ».` });
+    this.docsChanged(p);
+    return this.one(id);
+  }
+
+  /** LETO corrige les dates de fin de validité (dossiers validés avant les dates, erreur de saisie) */
+  async setExpiry(id: string, dto: { licenseExpiresOn?: string | null; insuranceExpiresOn?: string | null }, by: string) {
+    const p = await this.profiles.findOneBy({ id });
+    if (!p) throw new NotFoundException('Dossier introuvable');
+    const notes: string[] = [];
+    for (const [k, field, label] of [['licenseExpiresOn', 'licenseUrl', 'Permis'], ['insuranceExpiresOn', 'insuranceUrl', 'Assurance']] as const) {
+      const v = dto[k];
+      if (v === undefined || v === p[k]) continue;
+      if (v && !validDate(v)) throw new BadRequestException(`${label} : date invalide (AAAA-MM-JJ)`);
+      p[k] = v || null;
+      p.expiryNotices = (p.expiryNotices ?? []).filter((n) => !n.startsWith(`${field}:`));
+      notes.push(`${label} : ${v ? `jusqu’au ${frDate(v)}` : 'date retirée'}`);
+    }
+    if (!notes.length) return this.one(id);
+    p.history = [...p.history, { at: new Date().toISOString(), action: 'EXPIRY_SET', by, note: notes.join(' · ') }];
+    await this.profiles.save(p);
+    this.docsChanged(p);
+    await this.checkExpiries(p.id);
+    return this.one(id);
+  }
+
+  /** Rappels (30 jours avant) et blocage (le lendemain de la date) du permis et de l'assurance */
+  async checkExpiries(onlyId?: string) {
+    const rows = await this.profiles
+      .createQueryBuilder('p')
+      .where(`p.status IN ('APPROVED', 'SUSPENDED')`)
+      .andWhere(`(p."licenseExpiresOn" <= :warn OR p."insuranceExpiresOn" <= :warn)`, { warn: today(EXPIRY_WARN_DAYS) })
+      .andWhere(onlyId ? 'p.id = :id' : '1 = 1', { id: onlyId })
+      .getMany();
+    for (const p of rows) {
+      const sent = new Set(p.expiryNotices ?? []);
+      const fresh: string[] = [];
+      let expiredNow = false;
+      for (const [field, dateKey] of Object.entries(EXPIRING) as [keyof typeof EXPIRING, 'licenseExpiresOn' | 'insuranceExpiresOn'][]) {
+        const d = p[dateKey];
+        const state = expiryState(d);
+        if (state !== 'SOON' && state !== 'EXPIRED') continue;
+        const key = `${field}:${d}:${state === 'EXPIRED' ? 'expired' : 'soon'}`;
+        if (sent.has(key)) continue;
+        // Un document qui expire déjà ne reçoit plus le rappel « bientôt »
+        fresh.push(key, ...(state === 'EXPIRED' ? [`${field}:${d}:soon`] : []));
+        if (state === 'EXPIRED') expiredNow = true;
+        const doc = DOC_LABEL[field];
+        const pending = p.renewals?.some((r) => r.field === field);
+        const user = await this.users.findOneBy({ id: p.userId });
+        if (state === 'SOON') {
+          this.notify.send([p.userId], 'UPDATED', {
+            title: `Votre ${doc} expire le ${frDate(d!)}`,
+            body: pending ? 'Le nouveau document est en cours de vérification par LETO.' : 'Envoyez le nouveau document dans l’app, rubrique « Mes documents », pour continuer à recevoir des courses.',
+          });
+          if (p.affiliatedCompanyId) {
+            this.notify.office({ companyId: p.affiliatedCompanyId }, 'AFFILIATION', {
+              title: 'Document bientôt expiré',
+              body: `${user?.name ?? 'Un livreur'} : ${doc} valable jusqu’au ${frDate(d!)}`,
+              link: '/independants',
+            });
+          }
+        } else {
+          this.notify.send([p.userId], 'CANCELLED', {
+            title: `Votre ${doc} a expiré`,
+            body: 'Vous ne recevez plus de courses. Envoyez le nouveau document dans l’app, rubrique « Mes documents ».',
+          });
+          if (p.affiliatedCompanyId) {
+            this.notify.office({ companyId: p.affiliatedCompanyId }, 'AFFILIATION', {
+              title: 'Document expiré',
+              body: `${user?.name ?? 'Un livreur'} : ${doc} expiré le ${frDate(d!)}. Il ne reçoit plus de courses jusqu’au renouvellement.`,
+              link: '/independants',
+            });
+          }
+          p.history = [...p.history, { at: new Date().toISOString(), action: 'EXPIRED', note: `${doc} · ${frDate(d!)}` }];
+        }
+      }
+      if (!fresh.length) continue;
+      p.expiryNotices = [...sent, ...fresh].slice(-40);
+      await this.profiles.save(p);
+      if (expiredNow) this.docsChanged(p);
+    }
+  }
+
   // ---------- Photos privées : liens signés et temporaires ----------
 
   private sign(name: string, exp: number) {
@@ -422,9 +654,17 @@ export class IndependentsService implements OnModuleInit {
     return a.length === b.length && timingSafeEqual(a, b);
   }
 
-  private withLinks(p: IndependentProfile) {
+  withLinks(p: IndependentProfile) {
     const links = Object.fromEntries(DOC_FIELDS.map((k) => [k, this.link(p[k])]));
-    return { ...p, links, required: REQUIRED.map(([k, label]) => ({ key: k, label, ok: !!p[k] })), config: { enabled: this.cfg.enabled } };
+    return {
+      ...p,
+      links,
+      renewals: (p.renewals ?? []).map((r) => ({ ...r, link: this.link(r.url), label: DOC_LABEL[r.field] })),
+      updateRequests: (p.updateRequests ?? []).map((r) => ({ ...r, label: DOC_LABEL[r.field] })),
+      docs: docsState(p),
+      required: REQUIRED.map(([k, label]) => ({ key: k, label, ok: !!p[k] })),
+      config: { enabled: this.cfg.enabled },
+    };
   }
 
   /** Engins valides (pour les contrôles) */

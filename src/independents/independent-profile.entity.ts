@@ -11,7 +11,12 @@ export enum IndependentStatus {
 
 export interface IndependentEvent {
   at: string;
-  action: 'CREATED' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | 'REACTIVATED';
+  action:
+    | 'CREATED' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'SUSPENDED' | 'REACTIVATED'
+    // Rattachement : dossier partagé avec l'entreprise, consultations, demandes de mise à jour
+    | 'AFFILIATED' | 'UNAFFILIATED' | 'VIEWED' | 'UPDATE_REQUESTED'
+    // Documents renouvelés, dates d'expiration
+    | 'RENEWAL_SENT' | 'RENEWAL_APPROVED' | 'RENEWAL_REJECTED' | 'EXPIRY_SET' | 'EXPIRED';
   by?: string;
   note?: string;
 }
@@ -19,6 +24,40 @@ export interface IndependentEvent {
 /** Photos du dossier : le selfie (/uploads/…, photo de profil) et les documents (/identity/…, stockés à part, jamais publics) */
 export const DOC_FIELDS = ['selfieUrl', 'docsSelfieUrl', 'idFrontUrl', 'idBackUrl', 'licenseUrl', 'registrationUrl', 'insuranceUrl'] as const;
 export type DocField = (typeof DOC_FIELDS)[number];
+
+/** Documents que le LI peut renouveler (ou que son entreprise peut lui demander de mettre à jour) */
+export const RENEWABLE = ['docsSelfieUrl', 'idFrontUrl', 'idBackUrl', 'licenseUrl', 'registrationUrl', 'insuranceUrl'] as const;
+export type RenewableField = (typeof RENEWABLE)[number];
+export const DOC_LABEL: Record<RenewableField, string> = {
+  docsSelfieUrl: 'photo avec vos documents en main',
+  idFrontUrl: 'pièce d’identité (recto)',
+  idBackUrl: 'pièce d’identité (verso)',
+  licenseUrl: 'permis de conduire',
+  registrationUrl: 'carte grise',
+  insuranceUrl: 'assurance',
+};
+/** Documents avec une date de fin de validité */
+export const EXPIRING = { licenseUrl: 'licenseExpiresOn', insuranceUrl: 'insuranceExpiresOn' } as const;
+
+/** Document renouvelé par le LI, en attente de validation par LETO */
+export interface Renewal {
+  id: string;
+  field: RenewableField;
+  /** Nouvelle photo (/identity/…) ; null = même photo, nouvelle date seulement */
+  url: string | null;
+  expiresOn: string | null;
+  at: string;
+}
+
+/** Mise à jour d'un document demandée par l'entreprise de rattachement */
+export interface UpdateRequest {
+  id: string;
+  field: RenewableField;
+  note: string | null;
+  companyId: string;
+  by: string;
+  at: string;
+}
 
 /**
  * Dossier d'un livreur indépendant (LI) : identité, engin et photos prises à l'appareil photo.
@@ -66,6 +105,14 @@ export class IndependentProfile {
   @Column({ type: 'text', nullable: true }) licenseUrl: string | null;
   @Column({ type: 'text', nullable: true }) registrationUrl: string | null; // carte grise
   @Column({ type: 'text', nullable: true }) insuranceUrl: string | null;
+
+  // Fin de validité (AAAA-MM-JJ) : après cette date, plus de courses jusqu'au renouvellement validé par LETO
+  @Column({ type: 'varchar', length: 10, nullable: true }) licenseExpiresOn: string | null;
+  @Column({ type: 'varchar', length: 10, nullable: true }) insuranceExpiresOn: string | null;
+  /** Rappels déjà envoyés (« licenseUrl:2027-01-31:soon ») */
+  @Column({ type: 'jsonb', default: () => "'[]'" }) expiryNotices: string[];
+  @Column({ type: 'jsonb', default: () => "'[]'" }) renewals: Renewal[];
+  @Column({ type: 'jsonb', default: () => "'[]'" }) updateRequests: UpdateRequest[];
 
   /** Accord du livreur pour le traitement de ses données */
   @Column({ type: 'timestamptz', nullable: true }) consentAt: Date | null;
