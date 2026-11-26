@@ -47,7 +47,7 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
     if (access.blocker) throw new BadRequestException(access.blocker);
     const [cod] = await this.deliveries.query(`SELECT 1 FROM delivery_stops WHERE "deliveryId" = $1 AND "codAmount" > 0 LIMIT 1`, [deliveryId]);
     if (!this.independents.canTake(access, d, !!cod)) {
-      throw new BadRequestException(access.independent && cod ? 'Les livreurs indépendants ne prennent pas de paiement à la livraison' : 'Course réservée à une autre entreprise');
+      throw new BadRequestException(access.independent && cod ? 'Votre entreprise n’autorise pas le paiement à la livraison pour ses livreurs indépendants' : 'Course réservée à une autre entreprise');
     }
     if (price <= d.price) {
       throw new BadRequestException(`Proposez plus de ${money(d.price)}, ou acceptez la course au prix affiché`);

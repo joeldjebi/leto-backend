@@ -8,6 +8,7 @@ import { randomUUID } from 'crypto';
 import { DOC_FIELDS, DOC_LABEL, IndependentProfile, IndependentStatus, RENEWABLE, RenewableField } from '../independents/independent-profile.entity';
 import { docsState, IndependentsService } from '../independents/independents.service';
 import { NotifyService } from '../notifications/notify.service';
+import { RemittancesService } from '../remittances/remittances.service';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { AffiliationInvite, CompanyEarning, EarningType, InviteStatus, RuleType, Withdrawal, WithdrawalStatus } from './affiliation.entities';
 
@@ -39,6 +40,7 @@ export class AffiliationsService {
     private billing: BillingService,
     private tracking: TrackingGateway,
     private push: NotifyService,
+    private remittances: RemittancesService,
   ) {}
 
   private caps() {
@@ -92,7 +94,10 @@ export class AffiliationsService {
         ORDER BY i."createdAt" DESC`,
       [companyId],
     );
+    // Encaissements (paiement à la livraison) que chaque LI doit verser à l'entreprise
+    const cash = new Map((await this.remittances.balances(companyId)).filter((b) => b.independent).map((b) => [b.driverId, b]));
     return {
+      codAllowed: company.liCodAllowed,
       rate: company.liCommissionType ? { type: company.liCommissionType, value: company.liCommissionValue } : null,
       caps: this.caps(),
       pool: pool.map((r: any) => {
@@ -113,6 +118,9 @@ export class AffiliationsService {
       mine: mine.map((r: any) => ({
         ...r,
         docs: docsState(r),
+        cod: cash.get(r.userId)?.cod ?? 0,
+        codToRemit: cash.get(r.userId)?.toRemit ?? 0,
+        codPending: cash.get(r.userId)?.pending ?? 0,
         appliedRate: r.affCommissionType ? this.independents.capRule(r.affCommissionType, Number(r.affCommissionValue)) : null,
       })),
       invites: sent,
@@ -167,6 +175,25 @@ export class AffiliationsService {
     return this.forCompany(companyId);
   }
 
+  /** L'entreprise autorise (ou non) ses LI à prendre les courses avec paiement à la livraison */
+  async setCod(companyId: string, allowed: boolean) {
+    await this.companies.update(companyId, { liCodAllowed: allowed });
+    const company = await this.companies.findOneBy({ id: companyId });
+    const linked = await this.profiles.find({ where: { affiliatedCompanyId: companyId } });
+    for (const p of linked) {
+      this.push.send([p.userId], 'UPDATED', {
+        title: allowed ? 'Paiement à la livraison autorisé' : 'Paiement à la livraison retiré',
+        body: allowed
+          ? `${company?.name ?? 'Votre entreprise'} vous autorise à prendre les courses avec paiement à la livraison. Versez-lui les montants encaissés.`
+          : `${company?.name ?? 'Votre entreprise'} ne vous autorise plus à prendre de nouvelles courses avec paiement à la livraison.`,
+      });
+      this.tracking.emitToUser(p.userId, 'deliveries:changed', {});
+      this.changed(null, p.userId);
+    }
+    this.changed(companyId);
+    return this.forCompany(companyId);
+  }
+
   /** Invitation d'un LI du vivier */
   async invite(companyId: string, profileId: string, message: string | undefined, by: string) {
     const company = await this.companies.findOneBy({ id: companyId });
@@ -211,6 +238,13 @@ export class AffiliationsService {
     const [{ n }] = await this.db.query(`SELECT count(*)::int AS n FROM deliveries WHERE "driverId" = $1 AND status IN ('ACCEPTED', 'PICKED_UP')`, [p.userId]);
     if (n > 0) throw new BadRequestException('Course en cours : terminez-la avant de mettre fin au rattachement');
     const companyId = p.affiliatedCompanyId;
+    // Encaissements pas encore versés à l'entreprise : à régler avant
+    const [owed] = await this.remittances.balances(companyId, p.userId);
+    if (owed && owed.toRemit > 0) {
+      throw new BadRequestException(
+        `${money(owed.toRemit)} encaissés à la livraison restent à verser à l’entreprise${owed.pending ? ` (dont ${money(owed.pending)} en attente de confirmation)` : ''} : réglez-les avant de mettre fin au rattachement`,
+      );
+    }
     const company = await this.companies.findOneBy({ id: companyId });
     await this.profiles.update(p.id, {
       affiliatedCompanyId: null,
@@ -319,6 +353,7 @@ export class AffiliationsService {
             since: p.affiliatedAt,
             rateType: p.affCommissionType,
             rateValue: p.affCommissionValue == null ? null : this.independents.capRule(p.affCommissionType!, Number(p.affCommissionValue)),
+            codAllowed: company.liCodAllowed,
           }
         : null,
       invites: pending,

@@ -151,9 +151,10 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
           AND (
             -- Livreurs des entreprises (de l'entreprise visée, s'il y en a une)
             (NOT c.independent AND NOT $3 AND ($2::uuid IS NULL OR u."companyId" = $2))
-            -- Livreurs indépendants validés : rattachés à l'entreprise visée, ou course ouverte (rattachés ou en transition) ; jamais de paiement à la livraison
+            -- Livreurs indépendants validés : rattachés à l'entreprise visée, ou course ouverte (rattachés ou en transition) ; paiement à la livraison si leur entreprise l'autorise
             OR ($7 AND c.independent AND p.status = 'APPROVED' AND ${DOCS_VALID_SQL('p')}
-                AND NOT EXISTS (SELECT 1 FROM delivery_stops cs WHERE cs."deliveryId" = $8 AND cs."codAmount" > 0)
+                AND (NOT EXISTS (SELECT 1 FROM delivery_stops cs WHERE cs."deliveryId" = $8 AND cs."codAmount" > 0)
+                     OR EXISTS (SELECT 1 FROM companies ac WHERE ac.id = p."affiliatedCompanyId" AND ac."liCodAllowed"))
                 AND (p."affiliatedCompanyId" = $2
                      OR ($2::uuid IS NULL AND (p."affiliatedCompanyId" IS NOT NULL OR p."legacyUntil" > now()))))
           )

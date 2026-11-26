@@ -1,7 +1,7 @@
 import { Body, Controller, Get, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from 'class-validator';
+import { IsBoolean, IsIn, IsInt, IsNotEmpty, IsNumber, IsOptional, IsString, IsUUID, Matches, MaxLength, Min } from 'class-validator';
 import { Repository } from 'typeorm';
 import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
@@ -13,6 +13,9 @@ import { AffiliationsService } from './affiliations.service';
 class RateDto {
   @IsIn(['PERCENT', 'FIXED'], { message: 'Commission : pourcentage ou montant fixe' }) type: 'PERCENT' | 'FIXED';
   @Type(() => Number) @IsNumber({}, { message: 'Montant de la commission attendu' }) @Min(0) value: number;
+}
+class CodDto {
+  @IsBoolean() allowed: boolean;
 }
 class InviteDto {
   @IsUUID() profileId: string;
@@ -75,6 +78,12 @@ export class AffiliationsController {
   @Roles(Role.COMPANY)
   async rate(@CurrentUser() user: AuthUser, @Body() dto: RateDto) {
     return this.service.setRate(user.companyId, dto.type, dto.value, await this.nameOf(user));
+  }
+
+  @Put('company/cod')
+  @Roles(Role.COMPANY)
+  cod(@CurrentUser() user: AuthUser, @Body() dto: CodDto) {
+    return this.service.setCod(user.companyId, dto.allowed);
   }
 
   @Post('invites')

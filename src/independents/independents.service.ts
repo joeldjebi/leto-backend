@@ -38,6 +38,8 @@ export interface DriverAccess {
   independent: boolean;
   team: string | null;
   blocker: string | null;
+  /** Peut prendre une course avec paiement à la livraison (LI : autorisé par son entreprise) */
+  cod: boolean;
 }
 
 const KEY = 'independents';
@@ -219,17 +221,19 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
 
   /** Accès aux courses d'un livreur (entreprise ou LI) */
   async access(companyId: string | null): Promise<DriverAccess> {
-    if (!companyId) return { independent: false, team: null, blocker: 'Livreur sans entreprise : contactez LETO' };
+    if (!companyId) return { independent: false, team: null, blocker: 'Livreur sans entreprise : contactez LETO', cod: false };
     const c = await this.companies.findOneBy({ id: companyId });
-    if (!c?.independent) return { independent: false, team: companyId, blocker: null };
+    if (!c?.independent) return { independent: false, team: companyId, blocker: null, cod: true };
     const p = await this.profiles.findOneBy({ companyId });
-    return { independent: true, team: p?.affiliatedCompanyId ?? null, blocker: await this.blocker(companyId, p) };
+    const team = p?.affiliatedCompanyId ?? null;
+    const cod = !!team && (await this.companies.findOneBy({ id: team }))?.liCodAllowed === true;
+    return { independent: true, team, blocker: await this.blocker(companyId, p), cod };
   }
 
-  /** Le livreur peut-il voir / prendre cette course ? (LI : jamais de paiement à la livraison) */
+  /** Le livreur peut-il voir / prendre cette course ? (LI : paiement à la livraison seulement si son entreprise l'autorise) */
   canTake(a: DriverAccess, d: { forIndependents: boolean; targetCompanyId: string | null }, hasCod: boolean) {
     if (!a.independent) return !d.forIndependents && (!d.targetCompanyId || d.targetCompanyId === a.team);
-    if (a.blocker || hasCod) return false;
+    if (a.blocker || (hasCod && !a.cod)) return false;
     return d.forIndependents || !d.targetCompanyId || (!!a.team && d.targetCompanyId === a.team);
   }
 

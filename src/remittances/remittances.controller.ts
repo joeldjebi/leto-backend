@@ -49,7 +49,7 @@ export class RemittancesController {
   @Get('me')
   @Roles(Role.DRIVER)
   mine(@CurrentUser() user: AuthUser) {
-    return this.service.forDriver(user.companyId, user.sub);
+    return this.service.mine(user.sub, user.companyId);
   }
 
   @Post('me')
@@ -95,7 +95,10 @@ export class RemittancesController {
   async driver(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     const driver = await this.users.findOneBy({ id, role: Role.DRIVER });
     if (!driver?.companyId) throw new NotFoundException('Livreur introuvable');
-    if (user.role === Role.COMPANY && driver.companyId !== user.companyId) throw new ForbiddenException();
-    return this.service.forDriver(driver.companyId, id);
+    // LI rattaché : ses encaissements sont versés à son entreprise de rattachement
+    const payee = (await this.service.payeeOf(driver.companyId)).companyId;
+    if (!payee) throw new NotFoundException('Ce livreur indépendant n’est rattaché à aucune entreprise');
+    if (user.role === Role.COMPANY && payee !== user.companyId) throw new ForbiddenException();
+    return this.service.forDriver(payee, id);
   }
 }

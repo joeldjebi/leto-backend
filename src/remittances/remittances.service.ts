@@ -10,6 +10,8 @@ import { Remittance, RemittanceStatus } from './remittance.entity';
 
 export interface DriverCash {
   driverId: string;
+  /** Livreur indépendant rattaché : il garde le prix de ses courses et ne verse que les encaissements */
+  independent: boolean;
   /** Prix des courses terminées (payées en espèces au livreur) */
   earned: number;
   deliveries: number;
@@ -49,14 +51,17 @@ export class RemittancesService {
     const pct = company?.driverSharePercent ?? 0;
     const params: unknown[] = [companyId];
     const filter = driverId ? `AND u.id = $2` : '';
+    // Livreurs de l'entreprise et ses livreurs indépendants rattachés (prix des courses : pas versé, il reste au LI)
     if (driverId) params.push(driverId);
-    const rows: Record<string, number | string>[] = await this.db.query(
+    const rows: Record<string, number | string | boolean>[] = await this.db.query(
       `SELECT u.id AS "driverId",
               coalesce(d.earned, 0)::int AS earned, coalesce(d.deliveries, 0)::int AS deliveries,
               coalesce(d.today, 0)::int AS today, coalesce(d.week, 0)::int AS week, coalesce(d.month, 0)::int AS month,
               coalesce(c.cod, 0)::int AS cod,
-              coalesce(r.confirmed, 0)::int AS confirmed, coalesce(r.pending, 0)::int AS pending
+              coalesce(r.confirmed, 0)::int AS confirmed, coalesce(r.pending, 0)::int AS pending,
+              uc.independent
          FROM users u
+         JOIN companies uc ON uc.id = u."companyId"
          LEFT JOIN (
            SELECT "driverId", sum(price) AS earned, count(*) AS deliveries,
                   sum(price) FILTER (WHERE "deliveredAt" >= date_trunc('day', now())) AS today,
@@ -67,27 +72,31 @@ export class RemittancesService {
          LEFT JOIN (
            SELECT dl."driverId", sum(s."codAmount") AS cod
              FROM delivery_stops s JOIN deliveries dl ON dl.id = s."deliveryId"
-            WHERE s.status = 'DELIVERED' AND s."codAmount" > 0 AND dl."companyId" = $1 GROUP BY dl."driverId"
+            WHERE s.status = 'DELIVERED' AND s."codAmount" > 0 AND (dl."companyId" = $1 OR dl."affiliateCompanyId" = $1) GROUP BY dl."driverId"
          ) c ON c."driverId" = u.id
          LEFT JOIN (
            SELECT "driverId", sum(amount) FILTER (WHERE status = 'CONFIRMED') AS confirmed,
                   sum(amount) FILTER (WHERE status = 'PENDING') AS pending
              FROM driver_remittances WHERE "companyId" = $1 GROUP BY "driverId"
          ) r ON r."driverId" = u.id
-        WHERE u."companyId" = $1 AND u.role = 'DRIVER' ${filter}`,
+        WHERE u.role = 'DRIVER' ${filter}
+          AND (u."companyId" = $1 OR u."companyId" IN (SELECT "companyId" FROM independent_profiles WHERE "affiliatedCompanyId" = $1))`,
       params,
     );
     return rows.map((r) => {
-      const earned = Number(r.earned);
-      const share = Math.round((earned * pct) / 100);
+      const independent = r.independent === true;
+      // LI : ses courses sont à son entreprise individuelle (earned = 0 ici), il ne doit que les encaissements
+      const earned = independent ? 0 : Number(r.earned);
+      const share = independent ? 0 : Math.round((earned * pct) / 100);
       const confirmed = Number(r.confirmed);
       return {
         driverId: String(r.driverId),
+        independent,
         earned,
         deliveries: Number(r.deliveries),
         cod: Number(r.cod),
         share,
-        sharePercent: pct,
+        sharePercent: independent ? 0 : pct,
         confirmed,
         pending: Number(r.pending),
         toRemit: Math.max(0, earned + Number(r.cod) - share - confirmed),
@@ -96,6 +105,26 @@ export class RemittancesService {
         month: Number(r.month),
       };
     });
+  }
+
+  /**
+   * Entreprise à qui un livreur verse ses espèces : la sienne, ou celle de rattachement pour un LI
+   * (null : LI non rattaché, rien à verser).
+   */
+  async payeeOf(driverCompanyId: string | null): Promise<{ companyId: string | null; independent: boolean }> {
+    if (!driverCompanyId) return { companyId: null, independent: false };
+    const c = await this.companies.findOneBy({ id: driverCompanyId });
+    if (!c?.independent) return { companyId: driverCompanyId, independent: false };
+    const [p] = await this.db.query(`SELECT "affiliatedCompanyId" FROM independent_profiles WHERE "companyId" = $1`, [driverCompanyId]);
+    return { companyId: (p?.affiliatedCompanyId as string | null) ?? null, independent: true };
+  }
+
+  /** Vue du livreur (app) : son solde vis-à-vis de l'entreprise à qui il verse */
+  async mine(driverId: string, driverCompanyId: string | null) {
+    const payee = await this.payeeOf(driverCompanyId);
+    if (!payee.companyId) return { balance: null, history: [], independent: payee.independent, companyName: null, codAllowed: false };
+    const [{ balance, history }, company] = await Promise.all([this.forDriver(payee.companyId, driverId), this.companies.findOneBy({ id: payee.companyId })]);
+    return { balance, history, independent: payee.independent, companyName: company?.name ?? null, codAllowed: company?.liCodAllowed === true };
   }
 
   /** Solde et historique d'un livreur */
@@ -118,7 +147,9 @@ export class RemittancesService {
 
   /** Le livreur déclare un versement (l'entreprise confirme à réception) */
   async declare(driverId: string, companyId: string | null, dto: { amount: number; method: 'CASH' | 'MOBILE_MONEY'; reference?: string; proofUrl?: string; note?: string }) {
-    if (!companyId) throw new BadRequestException('Livreur sans entreprise');
+    const payee = await this.payeeOf(companyId);
+    if (!payee.companyId) throw new BadRequestException(payee.independent ? 'Vous n’êtes rattaché à aucune entreprise' : 'Livreur sans entreprise');
+    companyId = payee.companyId;
     const { balance } = await this.forDriver(companyId, driverId);
     const max = balance.toRemit - balance.pending;
     if (dto.amount > max) {
@@ -141,8 +172,8 @@ export class RemittancesService {
 
   /** L'entreprise enregistre directement un versement reçu (confirmé) */
   async record(companyId: string, by: string, driverId: string, dto: { amount: number; method: 'CASH' | 'MOBILE_MONEY'; reference?: string; note?: string }) {
-    const driver = await this.users.findOneBy({ id: driverId, companyId, role: Role.DRIVER });
-    if (!driver) throw new NotFoundException('Livreur introuvable');
+    const driver = await this.users.findOneBy({ id: driverId, role: Role.DRIVER });
+    if (!driver || (await this.payeeOf(driver.companyId)).companyId !== companyId) throw new NotFoundException('Livreur introuvable');
     const r = await this.repo.save(
       this.repo.create({
         ...dto,

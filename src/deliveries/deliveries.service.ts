@@ -660,8 +660,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
 
   /** Courses en attente (sans les numéros des destinataires tant que la course n'est pas acceptée) */
   async available(user: AuthUser) {
-    // Livreur indépendant : uniquement les courses où le client a choisi les indépendants
-    // LI : commandes ouvertes et celles de son entreprise de rattachement, sans paiement à la livraison
+    // LI : commandes ouvertes et celles de son entreprise de rattachement ; paiement à la livraison si son entreprise l'autorise
     const access = await this.independents.access(user.companyId);
     if (access.blocker) return [];
     const list = await this.query()
@@ -669,9 +668,9 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       .andWhere(
         access.independent
           ? `(d.forIndependents OR d.targetCompanyId IS NULL OR d.targetCompanyId = :team)
-             AND NOT EXISTS (SELECT 1 FROM delivery_stops cs WHERE cs."deliveryId" = d.id AND cs."codAmount" > 0)`
+             AND (:cod OR NOT EXISTS (SELECT 1 FROM delivery_stops cs WHERE cs."deliveryId" = d.id AND cs."codAmount" > 0))`
           : 'NOT d.forIndependents AND (d.targetCompanyId IS NULL OR d.targetCompanyId = :team)',
-        { team: access.team ?? '00000000-0000-0000-0000-000000000000' },
+        { team: access.team ?? '00000000-0000-0000-0000-000000000000', cod: access.cod },
       )
       .andWhere('(d.assignedDriverId IS NULL OR d.assignedDriverId = :me)', { me: user.sub })
       .orderBy('d.createdAt', 'ASC')
@@ -723,7 +722,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
       if (!this.independents.canTake(access, d, !!cod)) {
         throw new ForbiddenException(
           access.independent && cod
-            ? 'Les livreurs indépendants ne prennent pas de paiement à la livraison'
+            ? 'Votre entreprise n’autorise pas le paiement à la livraison pour ses livreurs indépendants'
             : d.targetCompanyId
               ? 'Course réservée à une autre entreprise'
               : 'Course réservée aux livreurs indépendants',
@@ -963,7 +962,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
   /** L'entreprise confirme avoir reversé au client le montant encaissé à un arrêt */
   async markCodRemitted(companyId: string, id: string, stopId: string) {
     const d = await this.findOne(id);
-    if (d.companyId !== companyId) throw new NotFoundException('Course introuvable');
+    if (d.companyId !== companyId && d.affiliateCompanyId !== companyId) throw new NotFoundException('Course introuvable');
     const res = await this.stops
       .createQueryBuilder()
       .update(DeliveryStop)

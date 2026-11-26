@@ -66,6 +66,10 @@ export class Company {
   @Column({ type: 'double precision', nullable: true })
   liCommissionValue: number | null;
 
+  /** Ses livreurs indépendants peuvent prendre les courses avec paiement à la livraison (encaissements versés à l'entreprise) */
+  @Column({ default: false })
+  liCodAllowed: boolean;
+
   /** Dernière visite du vivier des livreurs indépendants (bandeau « nouveaux livreurs ») */
   @Column({ type: 'timestamptz', nullable: true })
   liPoolSeenAt: Date | null;

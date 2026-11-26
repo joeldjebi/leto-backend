@@ -14,7 +14,8 @@ export class StatsService {
     const since = new Date(today.getTime() - (days - 1) * DAY);
     const weekStart = new Date(today.getTime() - 6 * DAY);
     const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    const scope = companyId ? 'AND d."companyId" = $2' : '';
+    // Courses de l'entreprise, y compris celles de ses livreurs indépendants rattachés
+    const scope = companyId ? 'AND (d."companyId" = $2 OR d."affiliateCompanyId" = $2)' : '';
     const p = (...extra: unknown[]) => (companyId ? [...extra, companyId] : extra);
 
     // Activité par jour (créées, terminées, volume)
@@ -44,7 +45,7 @@ export class StatsService {
               coalesce(sum(d.price) FILTER (WHERE d.status = 'DELIVERED' AND d."deliveredAt" >= $3), 0)::int AS "volumeMonth",
               count(*) FILTER (WHERE d.status = 'CANCELLED' AND d."createdAt" >= $2)::int AS "cancelledWeek"
          FROM deliveries d
-        WHERE true ${companyId ? 'AND d."companyId" = $4' : ''}`,
+        WHERE true ${companyId ? 'AND (d."companyId" = $4 OR d."affiliateCompanyId" = $4)' : ''}`,
       companyId ? [today, weekStart, monthStart, companyId] : [today, weekStart, monthStart],
     );
 
