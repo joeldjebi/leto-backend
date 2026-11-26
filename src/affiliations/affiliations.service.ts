@@ -220,6 +220,24 @@ export class AffiliationsService {
     return this.forCompany(companyId);
   }
 
+  /** SA : propose un LI à une entreprise ; le LI reçoit l'invitation (commission de l'entreprise) et l'accepte lui-même */
+  async propose(profileId: string, companyId: string, by: string) {
+    const company = await this.companies.findOneBy({ id: companyId });
+    if (!company || company.independent) throw new NotFoundException('Entreprise introuvable');
+    if (!company.liCommissionType || company.liCommissionValue == null) {
+      throw new BadRequestException(`${company.name} n’a pas encore fixé sa commission sur les livreurs indépendants : elle doit le faire dans sa page « Indépendants »`);
+    }
+    await this.invite(companyId, profileId, 'Proposé par LETO', `LETO (${by})`);
+    await this.independents.logEvent(profileId, { action: 'PROPOSED', by, note: `Invitation de ${company.name} envoyée au livreur` });
+    const [{ name }] = await this.db.query(`SELECT u.name FROM independent_profiles p JOIN users u ON u.id = p."userId" WHERE p.id = $1`, [profileId]);
+    this.push.office({ companyId }, 'AFFILIATION', {
+      title: 'LETO vous propose un livreur indépendant',
+      body: `${name} a reçu une invitation de votre part (commission ${ruleLabel(company.liCommissionType, company.liCommissionValue)}). Il apparaîtra dans vos livreurs dès qu’il l’accepte.`,
+      link: '/independants',
+    });
+    return { ok: true };
+  }
+
   async cancelInvite(companyId: string, id: string) {
     const inv = await this.invites.findOneBy({ id, companyId });
     if (!inv || inv.status !== InviteStatus.PENDING) throw new BadRequestException('Invitation introuvable ou déjà traitée');

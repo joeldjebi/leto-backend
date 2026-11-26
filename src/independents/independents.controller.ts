@@ -187,6 +187,12 @@ export class IndependentsController {
     return this.service.setExpiry(id, dto, await this.by(user));
   }
 
+  @Post(':id/grant-transition')
+  @Roles(Role.SUPER_ADMIN)
+  async grantTransition(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.grantTransition(id, await this.by(user));
+  }
+
   @Post(':id/reactivate')
   @Roles(Role.SUPER_ADMIN)
   async reactivate(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {

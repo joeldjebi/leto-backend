@@ -512,6 +512,27 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     if (!note?.trim()) throw new BadRequestException('Motif de la suspension obligatoire');
     return this.review(id, by, IndependentStatus.SUSPENDED, 'SUSPENDED', [IndependentStatus.APPROVED], note);
   }
+  /** SA : accorde la période de transition à un LI validé sans entreprise (validé après le déploiement du rattachement) */
+  async grantTransition(id: string, by: string) {
+    const p = await this.profiles.findOneBy({ id });
+    if (!p) throw new NotFoundException('Dossier introuvable');
+    if (p.status !== IndependentStatus.APPROVED) throw new BadRequestException('Le dossier doit être validé');
+    if (p.affiliatedCompanyId) throw new BadRequestException('Ce livreur est déjà rattaché à une entreprise');
+    const end = this.transitionEnd();
+    if (end.getTime() <= Date.now()) throw new BadRequestException('La période de transition est terminée : allongez-la dans « Rattachement aux entreprises »');
+    p.legacyUntil = end;
+    p.history = [...p.history, { at: new Date().toISOString(), action: 'TRANSITION_GRANTED', by, note: `Travaille seul jusqu’au ${end.toLocaleDateString('fr-FR')}` }];
+    await this.profiles.save(p);
+    this.notify.send([p.userId], 'ASSIGNED', {
+      title: 'Vous pouvez prendre des courses',
+      body: `LETO vous permet de travailler seul jusqu’au ${end.toLocaleDateString('fr-FR')}. D’ici là, rattachez-vous à une entreprise (« Mon entreprise »).`,
+    });
+    this.tracking.emitToUser(p.userId, 'deliveries:changed', {});
+    this.tracking.emitToUser(p.userId, 'affiliation:changed', {});
+    this.tracking.server?.to('super-admin').emit('independents:changed', { id });
+    return this.one(id);
+  }
+
   /** Note moyenne trop basse : suspension automatique (si le SA l'a activée), LETO examine ensuite le cas */
   async autoSuspend(driverId: string, avg: number, n: number) {
     if (!this.cfg.autoSuspendEnabled || avg >= this.cfg.autoSuspendBelow) return false;

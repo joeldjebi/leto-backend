@@ -14,6 +14,10 @@ class RateDto {
   @IsIn(['PERCENT', 'FIXED'], { message: 'Commission : pourcentage ou montant fixe' }) type: 'PERCENT' | 'FIXED';
   @Type(() => Number) @IsNumber({}, { message: 'Montant de la commission attendu' }) @Min(0) value: number;
 }
+class ProposeDto {
+  @IsUUID() profileId: string;
+  @IsUUID() companyId: string;
+}
 class CodDto {
   @IsBoolean() allowed: boolean;
 }
@@ -158,6 +162,13 @@ export class AffiliationsController {
   @Roles(Role.DRIVER)
   leave(@CurrentUser() user: AuthUser, @Body() dto: ReasonDto) {
     return this.service.leave(user.sub, dto.reason);
+  }
+
+  // ----- Super Admin : proposer un LI à une entreprise -----
+  @Post('propose')
+  @Roles(Role.SUPER_ADMIN)
+  async propose(@Body() dto: ProposeDto, @CurrentUser() user: AuthUser) {
+    return this.service.propose(dto.profileId, dto.companyId, await this.nameOf(user));
   }
 
   // ----- Super Admin : retraits -----

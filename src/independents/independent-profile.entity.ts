@@ -16,7 +16,9 @@ export interface IndependentEvent {
     // Rattachement : dossier partagé avec l'entreprise, consultations, demandes de mise à jour
     | 'AFFILIATED' | 'UNAFFILIATED' | 'VIEWED' | 'UPDATE_REQUESTED'
     // Documents renouvelés, dates d'expiration
-    | 'RENEWAL_SENT' | 'RENEWAL_APPROVED' | 'RENEWAL_REJECTED' | 'EXPIRY_SET' | 'EXPIRED';
+    | 'RENEWAL_SENT' | 'RENEWAL_APPROVED' | 'RENEWAL_REJECTED' | 'EXPIRY_SET' | 'EXPIRED'
+    // SA : période de transition accordée, entreprise proposée
+    | 'TRANSITION_GRANTED' | 'PROPOSED';
   by?: string;
   note?: string;
 }
