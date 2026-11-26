@@ -92,6 +92,9 @@ export class DeliveryStop {
   @Column({ type: 'enum', enum: StopStatus, default: StopStatus.PENDING })
   status: StopStatus;
 
+  /** Le livreur est passé à moins de 1 km : expéditeur et destinataire prévenus (push) */
+  @Column({ type: 'timestamptz', nullable: true })
+  approachNotifiedAt: Date | null;
   /** Le livreur est arrivé à moins de 150 m (détecté par GPS, côté serveur) */
   @Column({ type: 'timestamptz', nullable: true })
   arrivedAt: Date | null;

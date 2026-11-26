@@ -1,4 +1,5 @@
 import { Logger } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import {
   ConnectedSocket,
@@ -13,7 +14,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Server, Socket } from 'socket.io';
 import { In, IsNull, Repository } from 'typeorm';
 import { AuthUser } from '../common/decorators';
-import { ARRIVAL_RADIUS_M } from '../deliveries/absence';
+import { APPROACH_RADIUS_M, ARRIVAL_RADIUS_M } from '../deliveries/absence';
+import type { NotifyService } from '../notifications/notify.service';
 import { DeliveryStop, StopStatus } from '../deliveries/delivery-stop.entity';
 import { Delivery, DeliveryStatus } from '../deliveries/delivery.entity';
 import { haversineKm } from '../geo/communes';
@@ -51,7 +53,26 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
     @InjectRepository(User) private users: Repository<User>,
     @InjectRepository(Delivery) private deliveries: Repository<Delivery>,
     @InjectRepository(DeliveryStop) private stops: Repository<DeliveryStop>,
+    private moduleRef: ModuleRef,
   ) {}
+
+  /** Notifications push (résolues à l'usage : NotifyService dépend lui-même de cette passerelle) */
+  private push(): NotifyService | null {
+    try {
+      // Chargé à l'usage : un import direct crée une dépendance circulaire au démarrage
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const { NotifyService: N } = require('../notifications/notify.service') as typeof import('../notifications/notify.service');
+      return this.moduleRef.get(N, { strict: false });
+    } catch {
+      return null;
+    }
+  }
+
+  /** Comptes clients LETO du destinataire (même numéro), pour le prévenir aussi */
+  private async recipientUsers(phone: string) {
+    const rows = await this.users.find({ where: { phone, role: Role.CLIENT }, select: { id: true } });
+    return rows.map((u) => u.id);
+  }
 
   /**
    * Authentification AVANT l'acceptation de la connexion (middleware) :
@@ -163,6 +184,29 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
     const pending = await this.stops.find({
       where: { deliveryId: d.id, status: StopStatus.PENDING, arrivedAt: IsNull() },
     });
+    // Approche (moins de 1 km) : seulement l'arrêt le plus proche, une fois
+    const near = pending
+      .map((s) => ({ s, m: haversineKm(lat, lng, s.lat, s.lng) * 1000 }))
+      .filter((x) => x.m <= APPROACH_RADIUS_M && x.m > ARRIVAL_RADIUS_M && !x.s.approachNotifiedAt)
+      .sort((a, b) => a.m - b.m)[0];
+    if (near) {
+      const res = await this.stops.update({ id: near.s.id, approachNotifiedAt: IsNull() }, { approachNotifiedAt: new Date() });
+      if (res.affected) {
+        const push = this.push();
+        push?.send([d.clientId], 'CLIENT_UPDATE', {
+          title: 'Le livreur approche',
+          body: `Il arrive chez ${near.s.recipientName} dans quelques minutes`,
+          deliveryId: d.id,
+        });
+        const recipients = (await this.recipientUsers(near.s.recipientPhone)).filter((id) => id !== d.clientId);
+        if (recipients.length) {
+          push?.send(recipients, 'CLIENT_UPDATE', {
+            title: 'Votre livreur LETO arrive',
+            body: 'Il sera chez vous dans quelques minutes. Préparez-vous à recevoir votre colis.',
+          });
+        }
+      }
+    }
     for (const stop of pending) {
       if (haversineKm(lat, lng, stop.lat, stop.lng) * 1000 > ARRIVAL_RADIUS_M) continue;
       // Mise à jour conditionnelle : si deux positions arrivent en même temps, une seule l'enregistre
@@ -172,6 +216,10 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
       this.server.to(`delivery:${d.id}`).emit('delivery:updated', { id: d.id, status: d.status });
       this.emitToUser(d.clientId, 'stop:arrived', event);
       this.emitToUser(driverId, 'stop:arrived', event);
+      const push = this.push();
+      push?.send([d.clientId], 'CLIENT_UPDATE', { title: 'Le livreur est arrivé', body: `Il est chez ${stop.recipientName}`, deliveryId: d.id });
+      const recipients = (await this.recipientUsers(stop.recipientPhone)).filter((id) => id !== d.clientId);
+      if (recipients.length) push?.send(recipients, 'CLIENT_UPDATE', { title: 'Votre livreur LETO est arrivé', body: 'Il vous attend avec votre colis.' });
     }
   }
 

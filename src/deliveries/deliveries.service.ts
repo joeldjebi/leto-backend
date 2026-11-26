@@ -759,6 +759,15 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     if (!res.affected) throw new BadRequestException('Action impossible pour cette course');
     const picked = await this.findOne(id);
     this.push.send([picked.clientId], 'CLIENT_UPDATE', { title: 'Colis récupérés', body: `${picked.driver?.name ?? 'Le livreur'} est en route vers les destinataires`, deliveryId: id });
+    // Destinataires qui ont un compte LETO (même numéro) : prévenus par push
+    const phones = picked.stops.filter((s) => s.status === StopStatus.PENDING).map((s) => s.recipientPhone);
+    if (phones.length) {
+      const recipients = await this.users.find({ where: phones.map((phone) => ({ phone, role: Role.CLIENT })), select: { id: true } });
+      const ids = recipients.map((u) => u.id).filter((uid) => uid !== picked.clientId);
+      if (ids.length) {
+        this.push.send(ids, 'CLIENT_UPDATE', { title: 'Votre colis est en route', body: `${picked.driver?.name ?? 'Un livreur LETO'} vous l’apporte. Vous serez prévenu à son approche.` });
+      }
+    }
     return this.notify(picked);
   }
 
