@@ -26,9 +26,9 @@ export class Remittance {
   @Column('int')
   amount: number;
 
-  /** CASH (remis en main propre) ou MOBILE_MONEY */
+  /** CASH (remis en main propre), MOBILE_MONEY, ou PAYROLL (déduit de la paie : compensation automatique) */
   @Column({ type: 'varchar', length: 20 })
-  method: 'CASH' | 'MOBILE_MONEY';
+  method: 'CASH' | 'MOBILE_MONEY' | 'PAYROLL';
   @Column({ type: 'text', nullable: true })
   reference: string | null;
   @Column({ type: 'text', nullable: true })

@@ -1,3 +1,4 @@
+import type { PayRule } from '../payroll/payroll.entities';
 import { Column, CreateDateColumn, Entity, ManyToOne, PrimaryGeneratedColumn } from 'typeorm';
 import { Company } from '../companies/company.entity';
 
@@ -64,6 +65,10 @@ export class User {
   ratingAvg: number | null;
   @Column({ type: 'int', default: 0 })
   ratingCount: number;
+  /** Règle de rémunération propre au livreur (sinon celle de son entreprise) */
+  @Column({ type: 'jsonb', nullable: true })
+  payRule: PayRule | null;
+
   /** Dernière alerte « note basse » envoyée au back-office */
   @Column({ type: 'timestamptz', nullable: true })
   ratingAlertAt: Date | null;

@@ -65,6 +65,7 @@ export const OFFICE_KINDS = {
   WITHDRAWAL: { label: 'Retraits des gains', sound: 'ASSIGNED' },
   POOL: { label: 'Nouveaux livreurs indépendants disponibles', sound: 'ASSIGNED' },
   RATING: { label: 'Notes basses des livreurs', sound: 'UPDATED' },
+  PAYROLL: { label: 'Paye des livreurs (avances, contestations)', sound: 'ASSIGNED' },
   VIDEO_VISIT: { label: 'Visites de la vidéo de présentation', sound: 'CLIENT_UPDATE' },
 } as const satisfies Record<string, { label: string; sound: SoundEvent }>;
 export type OfficeKind = keyof typeof OFFICE_KINDS;

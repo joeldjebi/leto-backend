@@ -61,6 +61,9 @@ import { UsersController } from './users/users.controller';
 import { AffiliationInvite, CompanyEarning, Withdrawal } from './affiliations/affiliation.entities';
 import { AffiliationsController } from './affiliations/affiliations.controller';
 import { AffiliationsService } from './affiliations/affiliations.service';
+import { PayAdvance, Payslip } from './payroll/payroll.entities';
+import { PayrollController } from './payroll/payroll.controller';
+import { PayrollService } from './payroll/payroll.service';
 
 @Module({
   imports: [
@@ -72,12 +75,12 @@ import { AffiliationsService } from './affiliations/affiliations.service';
       username: process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
-      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert, AffiliationInvite, CompanyEarning, Withdrawal],
+      entities: [User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert, AffiliationInvite, CompanyEarning, Withdrawal, Payslip, PayAdvance],
       // Crée / met à jour les tables au démarrage (DB_SYNC=false pour désactiver).
       // À remplacer par des migrations TypeORM quand le schéma sera stabilisé.
       synchronize: process.env.DB_SYNC !== 'false',
     }),
-    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert, AffiliationInvite, CompanyEarning, Withdrawal]),
+    TypeOrmModule.forFeature([User, Company, Delivery, DeliveryStop, Offer, SavedAddress, Setting, Payment, CreditTransaction, Remittance, LogbookEntry, IndependentProfile, Country, VideoVisit, Prospect, OrderAlert, AffiliationInvite, CompanyEarning, Withdrawal, Payslip, PayAdvance]),
     JwtModule.register({
       global: true,
       secret: process.env.JWT_SECRET,
@@ -107,6 +110,7 @@ import { AffiliationsService } from './affiliations/affiliations.service';
     UploadsController,
     UsersController,
     AffiliationsController,
+    PayrollController,
   ],
   providers: [
     AuthService,
@@ -131,6 +135,7 @@ import { AffiliationsService } from './affiliations/affiliations.service';
     CountriesService,
     ProspectsService,
     AffiliationsService,
+    PayrollService,
     TrackingGateway,
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

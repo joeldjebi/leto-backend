@@ -1,3 +1,4 @@
+import type { PayPeriod, PayRule } from '../payroll/payroll.entities';
 import { OpeningHours } from './opening';
 import { Column, CreateDateColumn, Entity, PrimaryGeneratedColumn } from 'typeorm';
 
@@ -86,6 +87,14 @@ export class Company {
   /** SA : ses livreurs indépendants voient les commandes ouvertes */
   @Column({ default: true })
   liOpenOrders: boolean;
+
+  /** Paye interne de ses livreurs : activée, période, règle de rémunération par défaut */
+  @Column({ default: false })
+  payrollEnabled: boolean;
+  @Column({ type: 'varchar', length: 10, default: 'MONTH' })
+  payPeriod: PayPeriod;
+  @Column({ type: 'jsonb', nullable: true })
+  payRule: PayRule | null;
 
   /** Dernière visite du vivier des livreurs indépendants (bandeau « nouveaux livreurs ») */
   @Column({ type: 'timestamptz', nullable: true })
