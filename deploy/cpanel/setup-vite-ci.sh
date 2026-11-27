@@ -2,7 +2,7 @@
 # Passage aux domaines vite.ci (à lancer en root, une fois les domaines créés dans cPanel) :
 #   cd /var/www/leto/leto-backend && bash deploy/cpanel/setup-vite-ci.sh
 #
-#   VITE           vite.ci (landing) · vite.ci/pro (entreprises) · leto.vite.ci (admin) · api.vite.ci (API, port 3100)
+#   VITE           vite.ci (landing) · vite.ci/pro (entreprises) · leto.vite.ci (admin) · api.vite.ci (API, port 3110)
 #   Adjamé-Smart   as.vite.ci (vitrine) · boutique.vite.ci · sa.vite.ci (admin) · api.as.vite.ci (API, port 3200)
 #
 # Écrit seulement les inclusions propres aux hôtes api.* (rien dans la configuration globale de WHM),
@@ -13,6 +13,9 @@ set -euo pipefail
 
 CPUSER="${CPUSER:-performx}"
 SERVER_IP="${SERVER_IP:-185.215.167.87}"
+# Ports des API sur le serveur (3100 est pris par Loki)
+VITE_PORT="${VITE_PORT:-3110}"
+AS_PORT="${AS_PORT:-3200}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 HOME_DIR="$(getent passwd "$CPUSER" | cut -d: -f6)"
 [ -n "$HOME_DIR" ] || { echo "Compte cPanel « $CPUSER » introuvable"; exit 1; }
@@ -42,8 +45,8 @@ proxy() { # $1 = hôte, $2 = port
   done
   echo "  ✓ $1 → 127.0.0.1:$2"
 }
-proxy api.vite.ci 3100
-proxy api.as.vite.ci 3200
+proxy api.vite.ci "$VITE_PORT"
+proxy api.as.vite.ci "$AS_PORT"
 for d in leto.vite.ci as.vite.ci boutique.vite.ci sa.vite.ci api.vite.ci api.as.vite.ci; do
   mkdir -p "$HOME_DIR/public_html/$d" && chown "$CPUSER:$CPUSER" "$HOME_DIR/public_html/$d"
 done
