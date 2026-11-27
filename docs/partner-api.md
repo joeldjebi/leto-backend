@@ -73,6 +73,7 @@ Tant que la course attend un livreur, un livreur peut proposer un prix plus éle
 - `GET /deliveries/:id/offers` : `[{ id, price, counterPrice, awaiting: "CLIENT" | "DRIVER", minCounter, expiresAt, driver: { name }, etaMin }]`
 - `POST /offers/:id/accept` : la course est attribuée au livreur à son prix.
 - `POST /offers/:id/decline` : proposition refusée.
+- Webhook `delivery.offers` : envoyé quand une proposition arrive, est contre-proposée, refusée ou expire (relisez `GET /deliveries/:id/offers`).
 - `POST /offers/:id/counter` `{ price }` : contre-proposition (une seule par proposition), entre `minCounter` et `price − 50`. Le livreur a 2 min pour l'accepter (course attribuée à ce prix) ou la refuser.
 
 ### `GET /geo/search?q=palmeraie cocody` — recherche d'adresse

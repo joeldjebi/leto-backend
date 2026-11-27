@@ -315,7 +315,12 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
 
   emitToDelivery(deliveryId: string, event: string, payload: unknown) {
     this.server?.to(`delivery:${deliveryId}`).emit(event, payload);
+    // Propositions de prix : le partenaire (ex. Adjamé-Smart) est prévenu pour mettre à jour son client
+    if (event === 'delivery:offers') this.onOffersChanged?.(deliveryId);
   }
+
+  /** Branché par l'API partenaire : webhook « delivery.offers » quand les propositions changent */
+  onOffersChanged?: (id: string) => void;
 
   /** Branché par l'API partenaire : webhooks à chaque changement d'une course */
   onDeliveryChanged?: (id: string) => void;

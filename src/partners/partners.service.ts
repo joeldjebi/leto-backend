@@ -51,6 +51,7 @@ export class PartnersService implements OnModuleInit, OnModuleDestroy {
     if (row) this.cfg = { enabled: false, ...(row.value as Partial<PartnersConfig>) };
     // Chaque changement d'une course passe par le temps réel : on y branche les webhooks des partenaires
     this.tracking.onDeliveryChanged = (id) => this.onDeliveryChanged(id).catch((e) => this.logger.warn(`Webhook partenaire : ${e}`));
+    this.tracking.onOffersChanged = (id) => this.onOffersChanged(id).catch((e) => this.logger.warn(`Webhook partenaire (propositions) : ${e}`));
     this.worker = setInterval(() => this.flush().catch((e) => this.logger.warn(`Envoi des webhooks : ${e}`)), WORKER_MS);
     this.worker.unref();
   }
@@ -299,6 +300,22 @@ export class PartnersService implements OnModuleInit, OnModuleDestroy {
         nextAttemptAt: new Date(),
       });
     }
+    void this.flush();
+  }
+
+  /** Propositions de prix nouvelles, contre-proposées, refusées ou expirées : un seul événement, le partenaire relit la liste */
+  private async onOffersChanged(id: string) {
+    const d = await this.deliveries.findOne({ where: { id }, relations: { stops: true, driver: true } });
+    if (!d?.partnerId) return;
+    const p = await this.partners.findOneBy({ id: d.partnerId });
+    if (!p?.webhookUrl) return;
+    await this.hooks.save({
+      partnerId: p.id,
+      deliveryId: d.id,
+      event: 'delivery.offers',
+      payload: { id: `evt_${randomBytes(12).toString('hex')}`, event: 'delivery.offers', createdAt: new Date().toISOString(), stopId: null, delivery: this.view(d) },
+      nextAttemptAt: new Date(),
+    });
     void this.flush();
   }
 
