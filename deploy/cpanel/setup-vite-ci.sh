@@ -63,6 +63,7 @@ if [ "${REDIRECT_OLD:-0}" = 1 ]; then
     echo "  ✓ $1 → $2"
   }
   redirect leto.performx.online https://vite.ci
+  redirect leto.performx.online/pro https://vite.ci/pro
   redirect sa.leto.performx.online https://leto.vite.ci
   echo "  api.leto.performx.online reste actif (applications déjà installées)"
 fi
