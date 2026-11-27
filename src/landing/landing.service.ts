@@ -7,7 +7,7 @@ import { StorageService } from '../storage/storage.service';
 
 type Txt = { title: string; text: string };
 
-/** Contenu de la landing page (leto.performx.online), modifiable par l'admin */
+/** Contenu de la landing page (vite.ci), modifiable par l'admin */
 export interface LandingContent {
   hero: { badge: string; title1: string; title2: string; subtitle: string; ctaPrimary: string; ctaSecondary: string };
   steps: Txt[]; // 01 commande, 02 suivi, 03 livré

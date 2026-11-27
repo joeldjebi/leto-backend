@@ -2,7 +2,7 @@
  * Messages de premier contact, adaptés à chaque entreprise de la liste de départ.
  * « {prenom} » est remplacé par le nom de l'expéditeur dans le back-office.
  */
-export const VIDEO_URL = 'https://leto.performx.online/video';
+export const VIDEO_URL = 'https://vite.ci/video';
 
 type Pitch = {
   /** Phrase d'accroche liée à leur activité */
@@ -195,7 +195,7 @@ export function messagesFor(name: string): ProspectMessages | null {
     'Bien cordialement,',
     '{prenom}',
     'Fondateur, VITE',
-    'leto.performx.online',
+    'vite.ci',
   ].join('\n');
   return { waMessage, emailSubject: p.subject, emailBody };
 }

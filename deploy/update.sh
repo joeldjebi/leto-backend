@@ -2,11 +2,11 @@
 # Mise à jour de VITE en production (API + back-office) : bash deploy/update.sh
 set -euo pipefail
 ROOT=/var/www/leto
-# Dossier web du back-office (cPanel : /home/performx/public_html/sa.leto.performx.online)
-BACKOFFICE_DIR="${BACKOFFICE_DIR:-/home/performx/public_html/sa.leto.performx.online}"
+# Dossier web du back-office (cPanel : /home/performx/public_html/leto.vite.ci)
+BACKOFFICE_DIR="${BACKOFFICE_DIR:-/home/performx/public_html/leto.vite.ci}"
 CPUSER="${CPUSER:-performx}"
-# Espace entreprise sur le domaine principal : leto.performx.online/pro (même back-office)
-PRO_DIR="${PRO_DIR:-/home/performx/public_html/leto.performx.online/pro}"
+# Espace entreprise sur le domaine principal : vite.ci/pro (même back-office)
+PRO_DIR="${PRO_DIR:-/home/performx/public_html/vite.ci/pro}"
 
 echo "== API"
 cd "$ROOT/leto-backend"

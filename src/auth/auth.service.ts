@@ -90,13 +90,13 @@ export class AuthService implements OnApplicationBootstrap {
 
   /**
    * Espaces web séparés (sécurité) : l'administration (sa.leto…) n'accepte que le Super Admin,
-   * l'espace entreprises (leto.performx.online/pro) n'accepte pas le Super Admin.
+   * l'espace entreprises (vite.ci/pro) n'accepte pas le Super Admin.
    * Sans en-tête Origin (app mobile, scripts) ou en développement (localhost) : pas de restriction.
    */
   private checkSpace(role: Role, origin?: string) {
     if (!origin || /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) return;
-    const admin = (process.env.ADMIN_ORIGIN ?? 'https://sa.leto.performx.online').replace(/\/$/, '');
-    const site = (process.env.SITE_URL ?? 'https://leto.performx.online').replace(/\/$/, '');
+    const admin = (process.env.ADMIN_ORIGIN ?? 'https://leto.vite.ci').replace(/\/$/, '');
+    const site = (process.env.SITE_URL ?? 'https://vite.ci').replace(/\/$/, '');
     if (origin === admin && role !== Role.SUPER_ADMIN) {
       throw new ForbiddenException(`Cet espace est réservé à l’administration VITE. Entreprises de livraison : connectez-vous sur ${site.replace(/^https?:\/\//, '')}/pro`);
     }

@@ -28,7 +28,7 @@ export class LandingController {
     return this.landing.get();
   }
 
-  // ----- Visites de la page vidéo (leto.performx.online/video) -----
+  // ----- Visites de la page vidéo (vite.ci/video) -----
 
   /** Ouverture de la page vidéo : enregistrée (pays, appareil, provenance), l'IP n'est pas conservée */
   @Public()

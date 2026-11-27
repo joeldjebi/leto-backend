@@ -17,7 +17,7 @@ function sourceOf(ua: string, referrer: string): string | null {
   if (/Snapchat/i.test(ua)) return 'Snapchat';
   try {
     const host = referrer ? new URL(referrer).hostname.replace(/^www\./, '') : '';
-    if (!host || /performx\.online$/.test(host)) return referrer ? 'Site VITE' : 'Lien direct';
+    if (!host || /(performx\.online|vite\.ci)$/.test(host)) return referrer ? 'Site VITE' : 'Lien direct';
     if (/google\./.test(host)) return 'Google';
     if (/facebook\.com|fb\.com/.test(host)) return 'Facebook';
     if (/linkedin\.com|lnkd\.in/.test(host)) return 'LinkedIn';

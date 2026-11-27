@@ -1,6 +1,6 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
-/** Visite de la page de présentation vidéo (leto.performx.online/video) : quand, où, sur quel appareil, combien de temps */
+/** Visite de la page de présentation vidéo (vite.ci/video) : quand, où, sur quel appareil, combien de temps */
 @Entity('video_visits')
 export class VideoVisit {
   @PrimaryGeneratedColumn('uuid')

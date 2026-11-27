@@ -21,7 +21,7 @@ const TIMEOUT_MS = 10_000;
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
 /** Lien de suivi public (site VITE) */
-const trackingBase = () => process.env.PUBLIC_TRACKING_URL ?? 'https://leto.performx.online/#/suivi/';
+const trackingBase = () => process.env.PUBLIC_TRACKING_URL ?? 'https://vite.ci/#/suivi/';
 
 /**
  * API partenaire de VITE : comptes partenaires (Adjamé-Smart, boutiques en ligne…), clés d'API,

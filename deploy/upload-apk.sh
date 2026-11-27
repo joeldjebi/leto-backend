@@ -3,12 +3,12 @@
 # À lancer depuis votre Mac (là où se trouve l'APK) :
 #   bash deploy/upload-apk.sh /chemin/vers/VITE-1.0.0.apk 1.0.0
 # Demande le numéro et le mot de passe du Super Admin (le mot de passe n'est ni affiché ni enregistré).
-# Variables facultatives : API (défaut https://api.leto.performx.online), LETO_PHONE (numéro du Super Admin).
+# Variables facultatives : API (défaut https://api.vite.ci), LETO_PHONE (numéro du Super Admin).
 set -euo pipefail
 
 APK="${1:-}"
 VERSION="${2:-}"
-API="${API:-https://api.leto.performx.online}"
+API="${API:-https://api.vite.ci}"
 
 [ -n "$APK" ] || { echo "Usage : bash deploy/upload-apk.sh <fichier.apk> <version>"; exit 1; }
 [ -f "$APK" ] || { echo "Fichier introuvable : $APK"; exit 1; }
