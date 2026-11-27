@@ -116,7 +116,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     const grid = this.settings.gridFor(company);
     const vehicleType = dto.vehicleType ?? VehicleType.MOTO;
     const speed = dto.speed ?? DeliverySpeed.STANDARD;
-    if (!grid.vehicles[vehicleType].enabled) throw new BadRequestException('Cette offre n’est pas disponible');
+    if (!grid.vehicles[vehicleType]?.enabled) throw new BadRequestException('Cette offre n’est pas disponible');
     if (dto.stops.length > grid.maxStops) throw new BadRequestException(`${grid.maxStops} adresses maximum par tournée`);
     if (!grid.codEnabled && dto.stops.some((s) => (s.codAmount ?? 0) > 0)) {
       throw new BadRequestException('Le paiement à la livraison n’est pas disponible pour le moment');

@@ -5,7 +5,6 @@ import * as bcrypt from 'bcryptjs';
 import { createHmac, randomUUID, timingSafeEqual } from 'crypto';
 import { DataSource, Repository } from 'typeorm';
 import { Company } from '../companies/company.entity';
-import { VehicleType } from '../pricing/pricing';
 import { Setting } from '../settings/setting.entity';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 import { normalizePlate, Role, User } from '../users/user.entity';
@@ -205,7 +204,7 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
       [ids],
     );
     if (!rows.length) return;
-    const describe = (r: (typeof rows)[number]) => [r.name, r.vehicleType ? VEHICLE_FR[r.vehicleType] : null, r.commune].filter(Boolean).join(' · ');
+    const describe = (r: (typeof rows)[number]) => [r.name, r.vehicleType ? (VEHICLE_FR[r.vehicleType] ?? r.vehicleType) : null, r.commune].filter(Boolean).join(' · ');
     const title = rows.length === 1 ? 'Nouveau livreur indépendant disponible' : `${rows.length} nouveaux livreurs indépendants disponibles`;
     const names = rows.slice(0, 3).map((r) => r.name).join(', ');
     const body = rows.length === 1 ? `${describe(rows[0])}. Invitez-le depuis le vivier.` : `${names}${rows.length > 3 ? ` et ${rows.length - 3} autre(s)` : ''}. Invitez-les depuis le vivier.`;
@@ -761,6 +760,4 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  /** Engins valides (pour les contrôles) */
-  static vehicles = Object.values(VehicleType) as string[];
 }

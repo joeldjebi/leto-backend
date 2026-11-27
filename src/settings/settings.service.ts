@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
-import { defaultGrid, DeliverySpeed, MAX_STOPS, PRICING_REV, PricingGrid, SPEED_TEXT, VehicleType } from '../pricing/pricing';
+import { BUILTIN_VEHICLES, defaultGrid, DeliverySpeed, MAX_STOPS, PRICING_REV, PricingGrid, SPEED_TEXT, VEHICLE_CODE, VEHICLE_ICONS, VehicleConfig, VehicleType } from '../pricing/pricing';
 import { Setting } from './setting.entity';
 
 const KEY = 'pricing';
@@ -25,7 +25,7 @@ export class SettingsService implements OnModuleInit {
       if ((stored.rev ?? 1) < PRICING_REV) {
         if ((stored.rev ?? 1) < 2) {
           const d = defaultGrid();
-          for (const v of Object.values(VehicleType)) {
+          for (const v of BUILTIN_VEHICLES) {
             this.grid.vehicles[v].perKm = Math.min(this.grid.vehicles[v].perKm, d.vehicles[v].perKm);
             this.grid.vehicles[v].maxAbidjan = d.vehicles[v].maxAbidjan;
           }
@@ -80,7 +80,7 @@ export class SettingsService implements OnModuleInit {
   gridFor(company?: { pricing?: Record<string, unknown> | null; vehicles?: string[] | null } | null): PricingGrid {
     if (!company) return this.grid;
     const g = company.pricing ? this.merge(this.priceOnly(company.pricing as Partial<PricingGrid>), this.grid) : structuredClone(this.grid);
-    for (const v of Object.values(VehicleType)) {
+    for (const v of Object.keys(g.vehicles)) {
       // Anciennes grilles : « non proposé » enregistré dans les prix
       const legacyOff = (company.pricing as { vehicles?: Record<string, { enabled?: boolean }> } | null)?.vehicles?.[v]?.enabled === false;
       const has = company.vehicles ? company.vehicles.includes(v) : !legacyOff;
@@ -122,12 +122,29 @@ export class SettingsService implements OnModuleInit {
   /** Fusionne une saisie partielle sur une base (seules les clés connues sont gardées) */
   private merge(input: Partial<PricingGrid> = {}, base: PricingGrid = defaultGrid()): PricingGrid {
     const out = structuredClone(base);
-    for (const v of Object.values(VehicleType)) {
+    // Engins : ceux de la base, plus ceux ajoutés par le SA ; null retire un engin ajouté (les engins d'origine restent)
+    for (const [v, raw] of Object.entries((input.vehicles ?? {}) as Record<string, Partial<VehicleConfig> | null>)) {
+      if (raw === null) {
+        if (!BUILTIN_VEHICLES.includes(v)) delete out.vehicles[v];
+        continue;
+      }
+      if (!out.vehicles[v]) {
+        // Création seulement par le SA (nom fourni) : une grille d'entreprise ne peut pas ajouter d'engin
+        if (!VEHICLE_CODE.test(v) || !raw?.name) continue;
+        out.vehicles[v] = { label: v, name: v, icon: 'moto', custom: true, description: '', base: 0, perKm: 0, min: 0, enabled: false, maxAbidjan: { EXPRESS: 0, STANDARD: 0, SCHEDULED: 0 } };
+      }
+    }
+    for (const v of Object.keys(out.vehicles)) {
       const src = input.vehicles?.[v];
       if (!src) continue;
-      for (const k of ['label', 'description', 'base', 'perKm', 'min', 'enabled'] as const) {
+      for (const k of ['label', 'name', 'description', 'base', 'perKm', 'min', 'enabled'] as const) {
         if (src[k] !== undefined) (out.vehicles[v] as any)[k] = src[k];
       }
+      if (typeof src.icon === 'string' && (VEHICLE_ICONS as readonly string[]).includes(src.icon)) out.vehicles[v].icon = src.icon;
+      out.vehicles[v].custom = !BUILTIN_VEHICLES.includes(v);
+      // Anciennes grilles sans nom court ni pictogramme
+      out.vehicles[v].name ||= out.vehicles[v].label;
+      out.vehicles[v].icon ||= 'moto';
       if (src.maxAbidjan && typeof src.maxAbidjan === 'object') {
         for (const sp of Object.values(DeliverySpeed)) {
           const cap = (src.maxAbidjan as Record<string, unknown>)[sp];
@@ -178,7 +195,10 @@ export class SettingsService implements OnModuleInit {
       if (typeof v !== 'string' || !v.trim() || v.length > 80) throw new BadRequestException(`${name} : texte requis (80 caractères max)`);
     };
     for (const [k, v] of Object.entries(g.vehicles)) {
+      if (!VEHICLE_CODE.test(k)) throw new BadRequestException(`Code d’engin invalide : ${k}`);
       text(v.label, `${k} · nom`);
+      text(v.name, `${k} · nom court`);
+      if (v.name.length > 20) throw new BadRequestException(`${k} · nom court : 20 caractères maximum`);
       if (typeof v.description !== 'string' || v.description.length > 120) throw new BadRequestException(`${k} · description trop longue`);
       num(v.base, `${k} · prix de base`, 0, 1_000_000);
       num(v.perKm, `${k} · prix par km`, 0, 100_000);

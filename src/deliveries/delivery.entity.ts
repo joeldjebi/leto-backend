@@ -47,8 +47,9 @@ export class Delivery {
   companyId: string | null;
 
   // Offre
-  @Column({ type: 'enum', enum: VehicleType, default: VehicleType.MOTO })
-  vehicleType: VehicleType;
+  /** Engin : MOTO, CAR, CARGO ou un engin ajouté par le SA (texte, plus d'énumération) */
+  @Column({ type: 'varchar', length: 12, default: VehicleType.MOTO })
+  vehicleType: string;
   @Column({ type: 'enum', enum: DeliverySpeed, default: DeliverySpeed.STANDARD })
   speed: DeliverySpeed;
 

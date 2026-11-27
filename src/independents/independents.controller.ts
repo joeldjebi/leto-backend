@@ -8,7 +8,7 @@ import { Repository } from 'typeorm';
 import { AuthService } from '../auth/auth.service';
 import { AuthUser, CurrentUser, Public, Roles } from '../common/decorators';
 import {PersonDto} from '../common/dto';
-import { VehicleType } from '../pricing/pricing';
+import { VEHICLE_CODE } from '../pricing/pricing';
 import { StorageService } from '../storage/storage.service';
 import { Role, User } from '../users/user.entity';
 import { IndependentStatus, RENEWABLE, RenewableField } from './independent-profile.entity';
@@ -27,7 +27,7 @@ class DossierDto {
   @IsOptional() @IsString() @MaxLength(40) idNumber?: string;
   @IsOptional() @IsString() @MaxLength(100) emergencyName?: string;
   @IsPhone({ optional: true, message: `Contact d’urgence : ${PHONE_MESSAGE}` }) emergencyPhone?: string;
-  @IsOptional() @IsEnum(VehicleType, { message: 'Engin : moto, voiture ou cargo' }) vehicleType?: string;
+  @IsOptional() @Matches(VEHICLE_CODE, { message: 'Engin inconnu' }) vehicleType?: string;
   @IsOptional() @IsString() @MaxLength(60) vehicleBrand?: string;
   @IsOptional() @IsString() @MaxLength(20) vehiclePlate?: string;
   @IsOptional() @IsString() @MaxLength(40) licenseNumber?: string;

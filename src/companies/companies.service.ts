@@ -155,7 +155,7 @@ export class CompaniesService {
       effective,
       platform: this.settings.pricing,
       /** Engins dont l'entreprise dispose */
-      vehicles: c?.vehicles ?? (Object.values(VehicleType) as string[]).filter(
+      vehicles: c?.vehicles ?? Object.keys(this.settings.pricing.vehicles).filter(
         (v) => (c?.pricing as { vehicles?: Record<string, { enabled?: boolean }> } | null)?.vehicles?.[v]?.enabled !== false,
       ),
     };
@@ -163,9 +163,9 @@ export class CompaniesService {
 
   /** Le gérant indique les engins dont il dispose (un engin désactivé par VITE reste non proposé) */
   async setVehicles(companyId: string, vehicles: string[]) {
-    const list = [...new Set(vehicles)].filter((v) => (Object.values(VehicleType) as string[]).includes(v));
+    const list = [...new Set(vehicles)].filter((v) => !!this.settings.pricing.vehicles[v]);
     if (!list.length) throw new BadRequestException('Choisissez au moins un engin');
-    if (!list.some((v) => this.settings.pricing.vehicles[v as VehicleType].enabled)) {
+    if (!list.some((v) => this.settings.pricing.vehicles[v].enabled)) {
       throw new BadRequestException('Aucun de ces engins n’est proposé par VITE pour le moment');
     }
     await this.companies.update(companyId, { vehicles: list });
@@ -201,7 +201,7 @@ export class CompaniesService {
         ...r,
         successRate: handled ? Math.round((r.delivered / handled) * 1000) / 10 : null,
         customPricing: !!companies.find((c) => c.id === r.id)?.pricing,
-        vehicles: (Object.keys(grid.vehicles) as VehicleType[])
+        vehicles: Object.keys(grid.vehicles)
           .filter((v) => grid.vehicles[v].enabled)
           .map((v) => ({
             vehicle: v,

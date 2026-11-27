@@ -16,8 +16,20 @@ export enum DeliverySpeed {
   SCHEDULED = 'SCHEDULED',
 }
 
+/** Pictogrammes disponibles pour un engin (apps et back-office) */
+export const VEHICLE_ICONS = ['moto', 'bike', 'tricycle', 'car', 'van', 'truck'] as const;
+export type VehicleIcon = (typeof VEHICLE_ICONS)[number];
+/** Code d'un engin : MOTO, CAR, CARGO, ou un engin ajouté par le SA (ex. VELO, TRICYCLE) */
+export const VEHICLE_CODE = /^[A-Z][A-Z0-9_]{1,9}$/;
+export const BUILTIN_VEHICLES: string[] = Object.values(VehicleType);
+
 export interface VehicleConfig {
   label: string;
+  /** Nom court affiché aux clients et livreurs (Moto, Vélo, Tricycle…) */
+  name: string;
+  icon: VehicleIcon;
+  /** Engin ajouté par le SA (supprimable), sinon engin d'origine (désactivable seulement) */
+  custom?: boolean;
   description: string;
   base: number;
   perKm: number;
@@ -35,7 +47,7 @@ export interface SpeedConfig {
 
 /** Grille tarifaire et règles, modifiables par le Super Admin (back-office → Tarifs et règles) */
 export interface PricingGrid {
-  vehicles: Record<VehicleType, VehicleConfig>;
+  vehicles: Record<string, VehicleConfig>;
   speeds: Record<DeliverySpeed, SpeedConfig>;
   /** Paiement à la livraison proposé aux clients (désactivé par défaut) */
   codEnabled: boolean;
@@ -163,11 +175,11 @@ export const defaultGrid = (): PricingGrid => ({
   vehicles: {
     // Moto : très compétitif, plafonné dans le Grand Abidjan (Express 2 500 F · Standard 2 200 F · Dans 2 h 2 000 F)
     MOTO: {
-      label: 'Livraison à moto', description: 'Petits colis, documents', base: 300, perKm: 85, min: 450, enabled: true,
+      label: 'Livraison à moto', name: 'Moto', icon: 'moto', description: 'Petits colis, documents', base: 300, perKm: 85, min: 450, enabled: true,
       maxAbidjan: { EXPRESS: 2500, STANDARD: 2200, SCHEDULED: 2000 },
     },
-    CAR: { label: 'Voiture', description: 'Colis moyens ou fragiles', base: 1000, perKm: 175, min: 2000, enabled: true, maxAbidjan: noCap() },
-    CARGO: { label: 'Cargo', description: 'Gros volumes', base: 3000, perKm: 300, min: 5000, enabled: true, maxAbidjan: noCap() },
+    CAR: { label: 'Voiture', name: 'Voiture', icon: 'car', description: 'Colis moyens ou fragiles', base: 1000, perKm: 175, min: 2000, enabled: true, maxAbidjan: noCap() },
+    CARGO: { label: 'Cargo', name: 'Cargo', icon: 'truck', description: 'Gros volumes', base: 3000, perKm: 300, min: 5000, enabled: true, maxAbidjan: noCap() },
   },
   speeds: {
     EXPRESS: { label: 'Express', description: SPEED_TEXT.EXPRESS, factor: 1.1 },
@@ -233,13 +245,14 @@ export const stopDiscountPct = (grid: PricingGrid, stops: number) =>
 export function computePrice(
   grid: PricingGrid,
   distanceKm: number,
-  vehicle: VehicleType,
+  vehicle: string,
   speed: DeliverySpeed,
   stops = 1,
   codStops = 0,
   ctx: PriceContext = {},
 ): number {
-  const v = grid.vehicles[vehicle];
+  // Engin supprimé entre-temps (course ancienne) : tarif moto
+  const v = grid.vehicles[vehicle] ?? grid.vehicles.MOTO;
   const factor = grid.speeds[speed].factor;
   const up = 1 + Math.max(0, ctx.surchargePct ?? 0) / 100;
   let course = Math.ceil((Math.max(v.min, v.base + v.perKm * distanceKm) * factor * up) / 50) * 50;

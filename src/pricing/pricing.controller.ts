@@ -1,3 +1,4 @@
+import { Public } from '../common/decorators';
 import { BadRequestException, Body, Controller, Get, Post, Query } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Type } from 'class-transformer';
@@ -58,6 +59,20 @@ export class PricingController {
     private independents: IndependentsService,
   ) {}
 
+  /** Catalogue des engins (nom, pictogramme, description) : libellés des apps, y compris les engins ajoutés par le SA */
+  @Public()
+  @Get('vehicles')
+  vehicles() {
+    return Object.entries(this.settings.pricing.vehicles).map(([code, v]) => ({
+      code,
+      name: v.name,
+      label: v.label,
+      icon: v.icon,
+      description: v.description,
+      enabled: v.enabled,
+    }));
+  }
+
   /** Grille tarifaire (affichage) */
   @Get('grid')
   grid() {
@@ -80,11 +95,13 @@ export class PricingController {
     const codStops = grid.codEnabled ? ordered.filter((s) => s.cod).length : 0;
     const inAbidjan = allInGrandAbidjan([pickup, ...ordered]);
     const sur = this.surcharge.context([pickup, ...ordered]);
-    const offers = (Object.keys(grid.vehicles) as VehicleType[])
+    const offers = Object.keys(grid.vehicles)
       .filter((vehicle) => grid.vehicles[vehicle].enabled)
       .map((vehicle) => ({
       vehicle,
       label: grid.vehicles[vehicle].label,
+      name: grid.vehicles[vehicle].name,
+      icon: grid.vehicles[vehicle].icon,
       description: grid.vehicles[vehicle].description,
       prices: Object.fromEntries(
         (Object.keys(grid.speeds) as DeliverySpeed[]).map((s) => [

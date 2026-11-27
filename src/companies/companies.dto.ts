@@ -1,3 +1,4 @@
+import { VEHICLE_CODE } from '../pricing/pricing';
 import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
 import { Type } from 'class-transformer';
 import { ArrayMinSize, IsArray, IsBoolean, IsIn, IsInt, IsNotEmpty, IsOptional, IsString, Matches, Max, MaxLength, Min, MinLength, ValidateIf, ValidateNested } from 'class-validator';
@@ -43,13 +44,13 @@ export class UpdateCompanyDto {
 
 /** Nouveau livreur : identité et engin */
 export class DriverDto extends PersonDto {
-  @IsOptional() @IsIn(['MOTO', 'CAR', 'CARGO'], { message: 'Engin : moto, voiture ou cargo' }) vehicleType?: string;
+  @IsOptional() @Matches(VEHICLE_CODE, { message: 'Engin inconnu' }) vehicleType?: string;
   @IsOptional() @IsString() @MaxLength(20, { message: 'Immatriculation : 20 caractères maximum' }) plate?: string;
 }
 
 /** Engin d'un livreur */
 export class DriverVehicleDto {
-  @IsIn(['MOTO', 'CAR', 'CARGO'], { message: 'Engin : moto, voiture ou cargo' }) vehicleType: string;
+  @Matches(VEHICLE_CODE, { message: 'Engin inconnu' }) vehicleType: string;
   /** Immatriculation ("" pour l'effacer) */
   @IsOptional() @IsString() @MaxLength(20, { message: 'Immatriculation : 20 caractères maximum' }) plate?: string;
 }

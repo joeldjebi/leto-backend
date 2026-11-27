@@ -1,7 +1,7 @@
 import { IsPhone, PHONE_MESSAGE } from '../countries/phone';
 import { Type } from 'class-transformer';
 import { ArrayMaxSize, ArrayMinSize, IsArray, IsBoolean, IsEnum, IsIn, IsInt, IsLatitude, IsLongitude, IsNotEmpty, IsOptional, IsString, IsUUID, Length, Matches, Max, MaxLength, Min, ValidateIf, ValidateNested } from 'class-validator';
-import { DeliverySpeed, MAX_STOPS, VehicleType } from '../pricing/pricing';
+import { DeliverySpeed, MAX_STOPS, VEHICLE_CODE } from '../pricing/pricing';
 import { DisputeDecision, FailureReason } from './delivery-stop.entity';
 
 export const PHOTO_REGEX = /^\/uploads\/[\w.-]+$/;
@@ -29,7 +29,7 @@ export class StopDto {
 }
 
 export class CreateDeliveryDto {
-  @IsOptional() @IsEnum(VehicleType) vehicleType?: VehicleType;
+  @IsOptional() @Matches(VEHICLE_CODE, { message: 'Engin inconnu' }) vehicleType?: string;
   @IsOptional() @IsEnum(DeliverySpeed) speed?: DeliverySpeed;
 
   // ----- Départ -----

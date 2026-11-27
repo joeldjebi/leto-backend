@@ -9,7 +9,7 @@ import { Delivery } from '../deliveries/delivery.entity';
 import { DeliveriesService } from '../deliveries/deliveries.service';
 import { allInGrandAbidjan } from '../geo/communes';
 import { GeoService } from '../geo/geo.service';
-import { computePrice, DeliverySpeed, MAX_STOPS, VehicleType } from '../pricing/pricing';
+import { computePrice, DeliverySpeed, MAX_STOPS, VEHICLE_CODE } from '../pricing/pricing';
 import { SurchargeService } from '../pricing/surcharge.service';
 import { SettingsService } from '../settings/settings.service';
 import { OffersService } from '../offers/offers.service';
@@ -61,7 +61,7 @@ class StopDto extends PointDto {
 class CreateDto {
   /** Référence de la commande chez le partenaire (renvoyée dans les webhooks) */
   @IsOptional() @IsString() @MaxLength(100) reference?: string;
-  @IsOptional() @IsEnum(VehicleType) vehicleType?: VehicleType;
+  @IsOptional() @Matches(VEHICLE_CODE, { message: 'Engin inconnu' }) vehicleType?: string;
   @IsOptional() @IsEnum(DeliverySpeed) speed?: DeliverySpeed;
   /** Entreprise de livraison choisie (facultatif) */
   @IsOptional() @IsUUID() companyId?: string;
@@ -138,7 +138,10 @@ export class PartnerApiController {
       durationMin: route.durationMin,
       codEnabled: grid.codEnabled,
       surchargePct: sur.pct,
-      prices: (Object.keys(grid.vehicles) as VehicleType[])
+      vehicles: Object.entries(grid.vehicles)
+        .filter(([, v]) => v.enabled)
+        .map(([code, v]) => ({ code, name: v.name, icon: v.icon, description: v.description })),
+      prices: Object.keys(grid.vehicles)
         .filter((v) => grid.vehicles[v].enabled)
         .flatMap((vehicleType) =>
           (Object.keys(grid.speeds) as DeliverySpeed[]).map((speed) => ({

@@ -1,10 +1,33 @@
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { Client } from 'pg';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
 import { FriendlyErrorsFilter, validationExceptionFactory } from './common/friendly-errors';
 
+/**
+ * Avant la synchronisation TypeORM : la colonne « engin » des courses passe d'une énumération à du texte
+ * (engins ajoutés par le SA). Conversion en place, sans perte : sinon TypeORM recréerait la colonne.
+ */
+async function prepareSchema() {
+  if (process.env.DB_SYNC === 'false') return;
+  const db = new Client({ host: process.env.DB_HOST, port: Number(process.env.DB_PORT ?? 5432), user: process.env.DB_USER, password: process.env.DB_PASSWORD, database: process.env.DB_NAME });
+  await db.connect();
+  try {
+    const { rows } = await db.query(`SELECT data_type FROM information_schema.columns WHERE table_name = 'deliveries' AND column_name = 'vehicleType'`);
+    if (rows[0]?.data_type === 'USER-DEFINED') {
+      await db.query(`ALTER TABLE deliveries ALTER COLUMN "vehicleType" DROP DEFAULT`);
+      await db.query(`ALTER TABLE deliveries ALTER COLUMN "vehicleType" TYPE varchar(12) USING "vehicleType"::text`);
+      await db.query(`ALTER TABLE deliveries ALTER COLUMN "vehicleType" SET DEFAULT 'MOTO'`);
+      console.log('Colonne deliveries.vehicleType convertie en texte');
+    }
+  } finally {
+    await db.end();
+  }
+}
+
 async function bootstrap() {
+  await prepareSchema();
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   // CORS : origines autorisées (back-office). Vide = toutes (développement). Les apps mobiles ne sont pas concernées.
   const origins = (process.env.CORS_ORIGIN ?? '').split(',').map((o) => o.trim()).filter(Boolean);
