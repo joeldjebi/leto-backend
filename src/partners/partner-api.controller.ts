@@ -100,6 +100,20 @@ export class PartnerApiController {
     return { id: p.id, name: p.name, active: p.active, webhookUrl: p.webhookUrl };
   }
 
+  /** Recherche d'adresse (quartiers, lieux d'Abidjan), pour placer le point de livraison */
+  @Get('geo/search')
+  geoSearch(@Query('q') q = '', @Query('lat') lat?: string, @Query('lng') lng?: string) {
+    const near = lat && lng && Number.isFinite(+lat) && Number.isFinite(+lng) ? { lat: +lat, lng: +lng } : undefined;
+    return this.geo.search(String(q).slice(0, 120), near);
+  }
+
+  /** Adresse et commune d'un point */
+  @Get('geo/reverse')
+  geoReverse(@Query('lat') lat: string, @Query('lng') lng: string) {
+    if (!Number.isFinite(+lat) || !Number.isFinite(+lng) || lat === '' || lng === '') throw new NotFoundException('Point invalide');
+    return this.geo.reverse(+lat, +lng);
+  }
+
   /** Devis : prix de chaque engin et délai, distance et durée */
   @Post('quotes')
   @HttpCode(200)

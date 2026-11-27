@@ -68,6 +68,12 @@ Confirme que la marchandise de cet arrêt est payée (par exemple : la boutique 
 ### `GET /statement?from=2026-12-01&to=2026-12-31`
 Relevé des montants encaissés à la livraison : `codCollected`, `codRemitted` (déjà reversés), `codPending`, `stopsDelivered`, `stopsFailed`.
 
+### `GET /geo/search?q=palmeraie cocody` — recherche d'adresse
+Jusqu'à 10 lieux `{ label, sublabel, lat, lng }` (quartiers et lieux d'Abidjan). Facultatif : `lat` et `lng` pour favoriser les lieux proches.
+
+### `GET /geo/reverse?lat=5.36&lng=-3.97` — adresse d'un point
+`{ label, sublabel, commune }` : à afficher au client pour qu'il vérifie le point de livraison.
+
 ## Format d'une course
 
 ```json
