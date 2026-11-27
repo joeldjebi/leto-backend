@@ -38,6 +38,13 @@ export class Offer {
   @Column({ type: 'enum', enum: OfferStatus, default: OfferStatus.PENDING })
   status: OfferStatus;
 
+  /** Contre-proposition du client (entre le prix affiché et la proposition) : le livreur l'accepte ou la refuse */
+  @Column({ type: 'int', nullable: true })
+  counterPrice: number | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  counteredAt: Date | null;
+
   @Column({ type: 'timestamptz' })
   expiresAt: Date;
 

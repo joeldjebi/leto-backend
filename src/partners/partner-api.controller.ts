@@ -12,6 +12,7 @@ import { GeoService } from '../geo/geo.service';
 import { computePrice, DeliverySpeed, MAX_STOPS, VehicleType } from '../pricing/pricing';
 import { SurchargeService } from '../pricing/surcharge.service';
 import { SettingsService } from '../settings/settings.service';
+import { OffersService } from '../offers/offers.service';
 import { Partner } from './partner.entities';
 import { PartnersService } from './partners.service';
 
@@ -78,6 +79,10 @@ class StatementQuery {
   @IsOptional() @Matches(/^\d{4}-\d{2}-\d{2}$/) to?: string;
 }
 
+class CounterDto {
+  @Type(() => Number) @IsInt() @Min(1) price: number;
+}
+
 /**
  * API partenaire v1 (Adjamé-Smart, boutiques en ligne…) : authentification par clé d'API
  * (Authorization: Bearer leto_live_…), désactivable par le SA (général ou par partenaire).
@@ -92,6 +97,7 @@ export class PartnerApiController {
     private geo: GeoService,
     private settings: SettingsService,
     private surcharge: SurchargeService,
+    private offers: OffersService,
     @InjectRepository(Delivery) private repo: Repository<Delivery>,
   ) {}
 
@@ -203,6 +209,35 @@ export class PartnerApiController {
     const d = await this.repo.findOneBy({ id, partnerId: p.id });
     if (!d) throw new NotFoundException('Course introuvable');
     return this.partners.view(await this.deliveries.confirmStopPayment(p.userId, id, stopId));
+  }
+
+  // ----- Propositions de prix des livreurs (course en attente) -----
+
+  /** Propositions en cours : prix du livreur, contre-proposition éventuelle, qui doit répondre, expiration */
+  @Get('deliveries/:id/offers')
+  async listOffers(@CurrentPartner() p: Partner, @Param('id', ParseUUIDPipe) id: string) {
+    const d = await this.repo.findOneBy({ id, partnerId: p.id });
+    if (!d) throw new NotFoundException('Course introuvable');
+    return this.offers.forClient(p.userId, id);
+  }
+
+  @Post('offers/:id/accept')
+  @HttpCode(200)
+  acceptOffer(@CurrentPartner() p: Partner, @Param('id', ParseUUIDPipe) id: string) {
+    return this.offers.accept(p.userId, id);
+  }
+
+  @Post('offers/:id/decline')
+  @HttpCode(200)
+  declineOffer(@CurrentPartner() p: Partner, @Param('id', ParseUUIDPipe) id: string) {
+    return this.offers.decline(p.userId, id);
+  }
+
+  /** Contre-proposition (une fois par proposition) : { price } entre le prix affiché + 50 et la proposition − 50 */
+  @Post('offers/:id/counter')
+  @HttpCode(200)
+  counterOffer(@CurrentPartner() p: Partner, @Param('id', ParseUUIDPipe) id: string, @Body() dto: CounterDto) {
+    return this.offers.counter(p.userId, id, dto.price);
   }
 
   /** Relevé des encaissements à la livraison (reversés ou non) */

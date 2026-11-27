@@ -24,6 +24,18 @@ export class OffersController {
     return this.service.propose(user, id, dto.price);
   }
 
+  @Post('offers/:id/counter/accept')
+  @Roles(Role.DRIVER)
+  acceptCounter(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.acceptCounter(user, id);
+  }
+
+  @Post('offers/:id/counter/decline')
+  @Roles(Role.DRIVER)
+  declineCounter(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.service.declineCounter(user, id);
+  }
+
   @Get('offers/mine')
   @Roles(Role.DRIVER)
   mine(@CurrentUser() user: AuthUser) {
@@ -41,6 +53,12 @@ export class OffersController {
   @Roles(Role.CLIENT)
   accept(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.service.accept(user.sub, id);
+  }
+
+  @Post('offers/:id/counter')
+  @Roles(Role.CLIENT)
+  counter(@CurrentUser() user: AuthUser, @Param('id', ParseUUIDPipe) id: string, @Body() dto: ProposeDto) {
+    return this.service.counter(user.sub, id, dto.price);
   }
 
   @Post('offers/:id/decline')

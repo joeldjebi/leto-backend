@@ -68,6 +68,13 @@ Confirme que la marchandise de cet arrêt est payée (par exemple : la boutique 
 ### `GET /statement?from=2026-12-01&to=2026-12-31`
 Relevé des montants encaissés à la livraison : `codCollected`, `codRemitted` (déjà reversés), `codPending`, `stopsDelivered`, `stopsFailed`.
 
+### Propositions de prix des livreurs
+Tant que la course attend un livreur, un livreur peut proposer un prix plus élevé (2 min pour répondre).
+- `GET /deliveries/:id/offers` : `[{ id, price, counterPrice, awaiting: "CLIENT" | "DRIVER", minCounter, expiresAt, driver: { name }, etaMin }]`
+- `POST /offers/:id/accept` : la course est attribuée au livreur à son prix.
+- `POST /offers/:id/decline` : proposition refusée.
+- `POST /offers/:id/counter` `{ price }` : contre-proposition (une seule par proposition), entre `minCounter` et `price − 50`. Le livreur a 2 min pour l'accepter (course attribuée à ce prix) ou la refuser.
+
 ### `GET /geo/search?q=palmeraie cocody` — recherche d'adresse
 Jusqu'à 10 lieux `{ label, sublabel, lat, lng }` (quartiers et lieux d'Abidjan). Facultatif : `lat` et `lng` pour favoriser les lieux proches.
 

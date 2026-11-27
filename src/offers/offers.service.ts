@@ -88,7 +88,7 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
   mine(driverId: string) {
     return this.offers.find({
       where: { driverId, status: OfferStatus.PENDING, expiresAt: MoreThan(new Date()) },
-      select: { id: true, deliveryId: true, price: true, expiresAt: true },
+      select: { id: true, deliveryId: true, price: true, counterPrice: true, expiresAt: true },
     });
   }
 
@@ -106,6 +106,10 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
     return list.map((o) => ({
       id: o.id,
       price: o.price,
+      // Contre-proposition envoyée : en attente de la réponse du livreur
+      counterPrice: o.counterPrice,
+      awaiting: o.counterPrice != null ? 'DRIVER' : 'CLIENT',
+      minCounter: d.price + 50,
       expiresAt: o.expiresAt,
       driver: { name: o.driver.name, avatarUrl: o.driver.avatarUrl, vehicleType: o.driver.vehicleType },
       // Livreur indépendant : toujours signalé au client (pas d'entreprise derrière lui)
@@ -126,12 +130,70 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
     if (offer.status !== OfferStatus.PENDING || offer.expiresAt < new Date()) {
       throw new BadRequestException('Cette proposition a expiré');
     }
+    return this.assign(offer, offer.price, 'CLIENT');
+  }
+
+  /** Le client répond par un autre prix (une fois par proposition) : le livreur a 2 min pour accepter ou refuser */
+  async counter(clientId: string, offerId: string, price: number) {
+    const offer = await this.ownedOffer(clientId, offerId);
+    if (offer.status !== OfferStatus.PENDING || offer.expiresAt < new Date()) throw new BadRequestException('Cette proposition a expiré');
+    if (offer.delivery.status !== DeliveryStatus.PENDING) throw new BadRequestException('La course n’est plus disponible');
+    if (offer.counterPrice != null) throw new BadRequestException('Vous avez déjà fait une contre-proposition à ce livreur');
+    const min = offer.delivery.price + 50;
+    if (price < min || price >= offer.price) {
+      throw new BadRequestException(`Proposez entre ${money(min)} et ${money(offer.price - 50)}, ou acceptez ${money(offer.price)}`);
+    }
+    await this.offers.update(
+      { id: offer.id, status: OfferStatus.PENDING },
+      { counterPrice: price, counteredAt: new Date(), expiresAt: new Date(Date.now() + OFFER_TTL_MS) },
+    );
+    this.tracking.emitToUser(offer.driverId, 'offer:countered', { deliveryId: offer.deliveryId, offerId: offer.id, price });
+    this.tracking.emitToDelivery(offer.deliveryId, 'delivery:offers', { deliveryId: offer.deliveryId });
+    this.push.send([offer.driverId], 'UPDATED', {
+      title: 'Contre-proposition du client',
+      body: `Vous proposiez ${money(offer.price)}, le client propose ${money(price)}. Répondez dans les 2 min.`,
+      deliveryId: offer.deliveryId,
+    });
+    return { ok: true, counterPrice: price };
+  }
+
+  // ---------- Livreur : réponse à la contre-proposition ----------
+
+  private async driverOffer(driverId: string, offerId: string) {
+    const offer = await this.offers.findOne({ where: { id: offerId }, relations: { delivery: true } });
+    if (!offer || offer.driverId !== driverId) throw new NotFoundException('Proposition introuvable');
+    if (offer.status !== OfferStatus.PENDING || offer.expiresAt < new Date() || offer.counterPrice == null) {
+      throw new BadRequestException('Cette contre-proposition a expiré');
+    }
+    return offer;
+  }
+
+  /** Le livreur accepte le prix du client : la course lui est attribuée à ce prix */
+  async acceptCounter(user: AuthUser, offerId: string) {
+    const offer = await this.driverOffer(user.sub, offerId);
+    return this.assign(offer, offer.counterPrice!, 'DRIVER');
+  }
+
+  async declineCounter(user: AuthUser, offerId: string) {
+    const offer = await this.driverOffer(user.sub, offerId);
+    await this.offers.update({ id: offer.id, status: OfferStatus.PENDING }, { status: OfferStatus.REJECTED });
+    this.tracking.emitToDelivery(offer.deliveryId, 'delivery:offers', { deliveryId: offer.deliveryId });
+    this.push.send([offer.delivery.clientId], 'CLIENT_UPDATE', {
+      title: 'Contre-proposition refusée',
+      body: `Le livreur n’accepte pas ${money(offer.counterPrice!)}. La course reste visible des autres livreurs.`,
+      deliveryId: offer.deliveryId,
+    });
+    return { ok: true };
+  }
+
+  /** Attribue la course au livreur de la proposition, au prix convenu (accepté par le client ou par le livreur) */
+  private async assign(offer: Offer, price: number, by: 'CLIENT' | 'DRIVER') {
     const others = await this.dataSource.transaction(async (m) => {
       // Le livreur a pu accepter d'autres courses entre-temps
       await assertCanTakeMore(m, offer.driverId, this.settings.pricing, offer.delivery?.speed).catch(() => {
         throw new BadRequestException('Ce livreur a désormais trop de courses en cours : choisissez une autre proposition');
       });
-      const commission = await this.billing.reserve(m, offer.companyId, offer.price).catch(() => {
+      const commission = await this.billing.reserve(m, offer.companyId, price).catch(() => {
         throw new BadRequestException(UNPAYABLE);
       });
       const res = await m
@@ -141,14 +203,14 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
           status: DeliveryStatus.ACCEPTED,
           driverId: offer.driverId,
           companyId: offer.companyId,
-          price: offer.price,
+          price,
           acceptedAt: () => 'NOW()',
           ...commission,
         })
         .where('id = :id AND status = :s', { id: offer.deliveryId, s: DeliveryStatus.PENDING })
         .execute();
       if (!res.affected) throw new ConflictException('La course n’est plus disponible');
-      await m.update(Offer, { id: offer.id }, { status: OfferStatus.ACCEPTED });
+      await m.update(Offer, { id: offer.id }, { status: OfferStatus.ACCEPTED, price });
       await syncFeeShares(m, offer.deliveryId);
       const rest = await m.find(Offer, { where: { deliveryId: offer.deliveryId, status: OfferStatus.PENDING } });
       await m.update(Offer, { deliveryId: offer.deliveryId, status: OfferStatus.PENDING }, { status: OfferStatus.REJECTED });
@@ -169,7 +231,11 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
 
     await this.dispatch.accepted(offer.deliveryId, offer.driverId);
     this.tracking.emitToUser(offer.driverId, 'offer:accepted', { deliveryId: offer.deliveryId });
-    this.push.send([offer.driverId], 'ASSIGNED', { title: 'Proposition acceptée', body: `Le client a accepté ${money(offer.price)} : allez au point de départ`, deliveryId: offer.deliveryId });
+    if (by === 'CLIENT') {
+      this.push.send([offer.driverId], 'ASSIGNED', { title: 'Proposition acceptée', body: `Le client a accepté ${money(price)} : allez au point de départ`, deliveryId: offer.deliveryId });
+    } else {
+      this.push.send([offer.delivery.clientId], 'CLIENT_UPDATE', { title: 'Contre-proposition acceptée', body: `Le livreur a accepté ${money(price)} : il va au point de départ`, deliveryId: offer.deliveryId });
+    }
     for (const o of others) this.tracking.emitToUser(o.driverId, 'offer:rejected', { deliveryId: offer.deliveryId });
     this.push.send(others.map((o) => o.driverId), 'UPDATED', {
       title: 'Course attribuée à un autre livreur',
@@ -177,7 +243,7 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
       deliveryId: offer.deliveryId,
     });
     this.tracking.deliveryChanged({ id: offer.deliveryId, status: DeliveryStatus.ACCEPTED });
-    return { ok: true, deliveryId: offer.deliveryId, price: offer.price };
+    return { ok: true, deliveryId: offer.deliveryId, price };
   }
 
   async decline(clientId: string, offerId: string) {
@@ -203,8 +269,11 @@ export class OffersService implements OnModuleInit, OnModuleDestroy {
       this.tracking.emitToUser(o.driverId, 'offer:rejected', { deliveryId: o.deliveryId });
       this.tracking.emitToDelivery(o.deliveryId, 'delivery:offers', { deliveryId: o.deliveryId });
       this.push.send([o.driverId], 'UPDATED', {
-        title: 'Proposition expirée',
-        body: `Le client n’a pas répondu à ${money(o.price)} à temps. La course est peut-être encore disponible.`,
+        title: o.counterPrice != null ? 'Contre-proposition expirée' : 'Proposition expirée',
+        body:
+          o.counterPrice != null
+            ? `Vous n’avez pas répondu à ${money(o.counterPrice)} à temps. La course est peut-être encore disponible.`
+            : `Le client n’a pas répondu à ${money(o.price)} à temps. La course est peut-être encore disponible.`,
         deliveryId: o.deliveryId,
       });
     }
