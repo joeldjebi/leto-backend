@@ -7,7 +7,7 @@ import { AuthUser, CurrentUser, Roles } from '../common/decorators';
 import { Role, User } from '../users/user.entity';
 import { NotifyService } from './notify.service';
 
-/** Sons des notifications : 3 sons LETO intégrés, sons ajoutés par l'admin, un son par événement */
+/** Sons des notifications : 3 sons VITE intégrés, sons ajoutés par l'admin, un son par événement */
 @Controller('notifications')
 export class NotificationsController {
   constructor(
@@ -16,7 +16,7 @@ export class NotificationsController {
   ) {}
 
   private async by(user: AuthUser) {
-    return (await this.users.findOneBy({ id: user.sub }))?.name ?? 'LETO';
+    return (await this.users.findOneBy({ id: user.sub }))?.name ?? 'VITE';
   }
 
   /** L'app télécharge la liste au démarrage (et quand l'admin la change) */

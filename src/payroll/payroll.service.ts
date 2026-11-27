@@ -22,7 +22,7 @@ interface Activity { deliveries: number; stops: number; revenue: number; ratingA
 /**
  * Paye interne des livreurs d'une entreprise : règle de rémunération, fiches de paie par période
  * (semaine, quinzaine, mois), primes et retenues, avances, compensation automatique des espèces
- * encaissées non versées. LETO calcule et garde les traces ; l'entreprise paie elle-même.
+ * encaissées non versées. VITE calcule et garde les traces ; l'entreprise paie elle-même.
  */
 @Injectable()
 export class PayrollService {
@@ -398,7 +398,7 @@ export class PayrollService {
 
   async requestAdvance(driverId: string, amount: number, reason?: string) {
     const { driver, company } = await this.driverCompany(driverId);
-    if (!company.payrollEnabled) throw new BadRequestException('Votre entreprise n’utilise pas la paye LETO');
+    if (!company.payrollEnabled) throw new BadRequestException('Votre entreprise n’utilise pas la paye VITE');
     if (await this.advances.existsBy({ driverId, status: AdvanceStatus.PENDING })) throw new BadRequestException('Une demande d’avance est déjà en attente');
     await this.advances.save({ companyId: company.id, driverId, amount: Math.round(amount), reason: reason?.trim() || null, status: AdvanceStatus.PENDING, createdBy: 'DRIVER' });
     this.notify.office({ companyId: company.id }, 'PAYROLL', { title: 'Demande d’avance', body: `${driver.name} demande ${money(Math.round(amount))}${reason?.trim() ? ` : « ${reason.trim()} »` : ''}`, link: '/paye' });

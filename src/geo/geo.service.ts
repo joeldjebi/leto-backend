@@ -21,7 +21,7 @@ export interface Route {
 
 export type LatLng = { lat: number; lng: number };
 
-const UA = 'LETO-delivery/0.1'; // Nominatim exige un User-Agent identifiable
+const UA = 'VITE-delivery/0.1'; // Nominatim exige un User-Agent identifiable
 const ABIDJAN_VIEWBOX = '-4.35,5.60,-3.70,5.15';
 
 /**

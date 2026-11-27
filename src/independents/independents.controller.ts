@@ -76,7 +76,7 @@ class ListQuery {
   @IsOptional() @IsEnum(IndependentStatus) status?: IndependentStatus;
 }
 
-/** Livreurs indépendants : inscription, dossier, validation par LETO */
+/** Livreurs indépendants : inscription, dossier, validation par VITE */
 @Controller('independents')
 export class IndependentsController {
   constructor(
@@ -86,7 +86,7 @@ export class IndependentsController {
   ) {}
 
   private async by(user: AuthUser) {
-    return (await this.users.findOneBy({ id: user.sub }))?.name ?? 'LETO';
+    return (await this.users.findOneBy({ id: user.sub }))?.name ?? 'VITE';
   }
 
   // ----- Public / app -----

@@ -19,7 +19,7 @@ export class LandingController {
   ) {}
 
   private async by(user: AuthUser) {
-    return (await this.users.findOneBy({ id: user.sub }))?.name ?? 'LETO';
+    return (await this.users.findOneBy({ id: user.sub }))?.name ?? 'VITE';
   }
 
   @Public()

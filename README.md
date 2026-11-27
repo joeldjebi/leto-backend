@@ -1,6 +1,6 @@
-# LETO — Backend (API)
+# VITE — Backend (API)
 
-API NestJS + PostgreSQL de la plateforme de livraison LETO (Abidjan, Côte d'Ivoire).
+API NestJS + PostgreSQL de la plateforme de livraison VITE (Abidjan, Côte d'Ivoire).
 
 - **Clients** (particuliers, boutiques) créent des demandes de livraison.
 - **Livreurs** des entreprises de livraison acceptent et effectuent les courses.

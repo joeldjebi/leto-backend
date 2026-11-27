@@ -74,8 +74,8 @@ export class SettingsService implements OnModuleInit {
   }
 
   /**
-   * Grille d'une entreprise : ses prix (engins, délais, plafonds, supplément arrêt, frais d'encaissement) sur les règles LETO.
-   * Un engin n'est proposé que s'il est activé par LETO ET que l'entreprise en dispose.
+   * Grille d'une entreprise : ses prix (engins, délais, plafonds, supplément arrêt, frais d'encaissement) sur les règles VITE.
+   * Un engin n'est proposé que s'il est activé par VITE ET que l'entreprise en dispose.
    */
   gridFor(company?: { pricing?: Record<string, unknown> | null; vehicles?: string[] | null } | null): PricingGrid {
     if (!company) return this.grid;

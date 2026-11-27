@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Met en ligne une nouvelle version de l'app Android (APK) sur la production, sans passer par le back-office.
 # À lancer depuis votre Mac (là où se trouve l'APK) :
-#   bash deploy/upload-apk.sh /chemin/vers/LETO-1.0.0.apk 1.0.0
+#   bash deploy/upload-apk.sh /chemin/vers/VITE-1.0.0.apk 1.0.0
 # Demande le numéro et le mot de passe du Super Admin (le mot de passe n'est ni affiché ni enregistré).
 # Variables facultatives : API (défaut https://api.leto.performx.online), LETO_PHONE (numéro du Super Admin).
 set -euo pipefail

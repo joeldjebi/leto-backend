@@ -52,7 +52,7 @@ export class LogbookEntry {
   /** Prix de la livraison (FCFA) */
   @Column('int')
   price: number;
-  /** Devise du prix (pays où LETO livre, figée à la saisie) */
+  /** Devise du prix (pays où VITE livre, figée à la saisie) */
   @Column({ type: 'varchar', length: 3, default: 'XOF' })
   currency: string;
 

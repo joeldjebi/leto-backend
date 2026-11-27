@@ -6,7 +6,7 @@ export enum Role {
   CLIENT = 'CLIENT', // particulier ou boutique qui demande une livraison
   DRIVER = 'DRIVER', // livreur rattaché à une entreprise
   COMPANY = 'COMPANY', // gérant d'une entreprise de livraison
-  SUPER_ADMIN = 'SUPER_ADMIN', // super admin (SA) de la plateforme LETO
+  SUPER_ADMIN = 'SUPER_ADMIN', // super admin (SA) de la plateforme VITE
 }
 
 /** Type de compte client, choisi à l'inscription */

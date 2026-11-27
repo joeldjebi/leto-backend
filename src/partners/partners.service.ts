@@ -20,11 +20,11 @@ const WORKER_MS = 10_000;
 const TIMEOUT_MS = 10_000;
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex');
-/** Lien de suivi public (site LETO) */
+/** Lien de suivi public (site VITE) */
 const trackingBase = () => process.env.PUBLIC_TRACKING_URL ?? 'https://leto.performx.online/#/suivi/';
 
 /**
- * API partenaire de LETO : comptes partenaires (Adjamé-Smart, boutiques en ligne…), clés d'API,
+ * API partenaire de VITE : comptes partenaires (Adjamé-Smart, boutiques en ligne…), clés d'API,
  * interrupteurs du SA (général et par partenaire), webhooks signés avec relances,
  * relevé des encaissements par partenaire.
  */
@@ -84,7 +84,7 @@ export class PartnersService implements OnModuleInit, OnModuleDestroy {
     return { config: this.config, partners: rows.map((r: Partner) => ({ ...r, webhookSecret: undefined })) };
   }
 
-  /** Nouveau partenaire : son compte client LETO (existant par téléphone, sinon créé) */
+  /** Nouveau partenaire : son compte client VITE (existant par téléphone, sinon créé) */
   async create(dto: { name: string; phone: string; webhookUrl?: string; note?: string }) {
     let user = await this.users.findOneBy({ phone: dto.phone });
     if (user && user.role !== Role.CLIENT) throw new ConflictException('Ce numéro est déjà utilisé par un compte qui n’est pas client');
@@ -179,12 +179,12 @@ export class PartnersService implements OnModuleInit, OnModuleDestroy {
   /** Clé reçue sur l'API partenaire → partenaire (interrupteurs du SA vérifiés) */
   async authenticate(raw: string | undefined) {
     if (!raw) throw new UnauthorizedException('Clé d’API manquante (en-tête Authorization: Bearer <clé>)');
-    if (!this.cfg.enabled) throw new ForbiddenException('L’API partenaire LETO est désactivée pour le moment');
+    if (!this.cfg.enabled) throw new ForbiddenException('L’API partenaire VITE est désactivée pour le moment');
     const k = await this.keys.findOneBy({ hash: sha256(raw) });
     if (!k || k.revokedAt) throw new UnauthorizedException('Clé d’API invalide ou révoquée');
     const p = await this.partners.findOneBy({ id: k.partnerId });
     if (!p) throw new UnauthorizedException('Clé d’API invalide');
-    if (!p.active) throw new ForbiddenException('Votre accès à l’API LETO est désactivé : contactez LETO');
+    if (!p.active) throw new ForbiddenException('Votre accès à l’API VITE est désactivé : contactez VITE');
     if (!k.lastUsedAt || Date.now() - k.lastUsedAt.getTime() > 60_000) await this.keys.update(k.id, { lastUsedAt: new Date() });
     return p;
   }
@@ -314,7 +314,7 @@ export class PartnersService implements OnModuleInit, OnModuleDestroy {
     try {
       const res = await fetch(p.webhookUrl!, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'User-Agent': 'LETO-Webhooks/1.0', 'X-Leto-Event': h.event, 'X-Leto-Delivery': h.deliveryId ?? '', 'X-Leto-Signature': PartnersService.sign(p.webhookSecret, body) },
+        headers: { 'Content-Type': 'application/json', 'User-Agent': 'VITE-Webhooks/1.0', 'X-Leto-Event': h.event, 'X-Leto-Delivery': h.deliveryId ?? '', 'X-Leto-Signature': PartnersService.sign(p.webhookSecret, body) },
         body,
         signal: AbortSignal.timeout(TIMEOUT_MS),
       });

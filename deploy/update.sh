@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mise à jour de LETO en production (API + back-office) : bash deploy/update.sh
+# Mise à jour de VITE en production (API + back-office) : bash deploy/update.sh
 set -euo pipefail
 ROOT=/var/www/leto
 # Dossier web du back-office (cPanel : /home/performx/public_html/sa.leto.performx.online)

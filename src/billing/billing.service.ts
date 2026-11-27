@@ -24,7 +24,7 @@ export interface BillingConfig {
   subscriptionFee: number; // abonnement annuel (FCFA)
   commissionType: CommissionType; // règle par défaut
   commissionValue: number; // % ou FCFA
-  accounts: MobileMoneyAccount[]; // comptes LETO où les entreprises paient
+  accounts: MobileMoneyAccount[]; // comptes VITE où les entreprises paient
   subscriptionEnabled: boolean; // abonnement annuel exigé des entreprises
   trialDays: number; // essai gratuit des nouvelles entreprises (0 = pas d'essai)
 }
@@ -162,7 +162,7 @@ export class BillingService implements OnModuleInit {
    * Dans une transaction, la ligne de l'entreprise est verrouillée (deux acceptations simultanées ne peuvent pas dépasser le crédit).
    */
   async reserve(m: EntityManager, companyId: string | null, price: number) {
-    if (!companyId) throw new BadRequestException('Livreur sans entreprise : contactez LETO');
+    if (!companyId) throw new BadRequestException('Livreur sans entreprise : contactez VITE');
     const c = await m.getRepository(Company).createQueryBuilder('c').setLock('pessimistic_write').where('c.id = :id', { id: companyId }).getOne();
     if (c?.independent) return this.reserveIndependent(m, c, price);
     if (!c || !c.active) throw new BadRequestException('Votre entreprise est suspendue : contactez votre gérant');
@@ -186,11 +186,11 @@ export class BillingService implements OnModuleInit {
     return { commissionAmount: amount, commissionRule: label };
   }
 
-  /** Livreur indépendant : dossier validé, LI activés par LETO, solde suffisant */
+  /** Livreur indépendant : dossier validé, LI activés par VITE, solde suffisant */
   private async reserveIndependent(m: EntityManager, c: Company, price: number) {
     const blocked = await this.independents.blocker(c.id);
     if (blocked) throw new BadRequestException(blocked);
-    if (!c.active) throw new BadRequestException('Votre compte est suspendu par LETO');
+    if (!c.active) throw new BadRequestException('Votre compte est suspendu par VITE');
     const { amount, label } = this.commission(c, price);
     // Rattaché à une entreprise : sa commission est aussi prélevée sur le solde du LI
     const aff = await this.affiliateCommission(c.id, price);
@@ -204,7 +204,7 @@ export class BillingService implements OnModuleInit {
     return { commissionAmount: amount, commissionRule: label, ...(aff ?? {}) };
   }
 
-  /** Commission de l'entreprise de rattachement d'un LI (taux accepté par le LI, plafonné par LETO) */
+  /** Commission de l'entreprise de rattachement d'un LI (taux accepté par le LI, plafonné par VITE) */
   async affiliateCommission(liCompanyId: string, price: number) {
     const [p] = await this.db.query(
       `SELECT "affiliatedCompanyId", "affCommissionType", "affCommissionValue" FROM independent_profiles WHERE "companyId" = $1`,

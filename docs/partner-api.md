@@ -1,10 +1,10 @@
-# API partenaire LETO — v1
+# API partenaire VITE — v1
 
-L'API partenaire permet à une application (Adjamé-Smart, une boutique en ligne…) de commander des livraisons LETO, de les suivre et d'être prévenue de chaque changement par webhook.
+L'API partenaire permet à une application (Adjamé-Smart, une boutique en ligne…) de commander des livraisons VITE, de les suivre et d'être prévenue de chaque changement par webhook.
 
 - Base : `https://api.leto.performx.online/partner/v1`
 - Format : JSON, dates ISO 8601 (UTC), montants en francs CFA (entiers).
-- Accès : clé d'API créée par LETO (back-office, page « Partenaires API »). LETO peut couper l'accès de tous les partenaires ou d'un seul : les appels répondent alors `403`.
+- Accès : clé d'API créée par VITE (back-office, page « Partenaires API »). VITE peut couper l'accès de tous les partenaires ou d'un seul : les appels répondent alors `403`.
 
 ## Authentification
 
@@ -12,12 +12,12 @@ L'API partenaire permet à une application (Adjamé-Smart, une boutique en ligne
 Authorization: Bearer leto_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 ```
 
-La clé n'est affichée qu'une fois, à sa création. Gardez-la côté serveur, jamais dans une app mobile ou un site public. Une clé compromise se révoque depuis le back-office LETO.
+La clé n'est affichée qu'une fois, à sa création. Gardez-la côté serveur, jamais dans une app mobile ou un site public. Une clé compromise se révoque depuis le back-office VITE.
 
 | Code | Sens |
 | --- | --- |
 | 401 | Clé absente, invalide ou révoquée |
-| 403 | API partenaire désactivée par LETO, ou votre accès désactivé |
+| 403 | API partenaire désactivée par VITE, ou votre accès désactivé |
 | 400 | Données invalides (le message dit lequel) |
 | 404 | Course introuvable (ou d'un autre partenaire) |
 
@@ -89,7 +89,7 @@ Relevé des montants encaissés à la livraison : `codCollected`, `codRemitted` 
 
 ## Webhooks
 
-LETO envoie un `POST` JSON à votre adresse à chaque événement :
+VITE envoie un `POST` JSON à votre adresse à chaque événement :
 
 | Événement | Quand |
 | --- | --- |
@@ -101,7 +101,7 @@ LETO envoie un `POST` JSON à votre adresse à chaque événement :
 | `delivery.completed` | Tous les arrêts traités |
 | `delivery.returned` | Colis non livrés rapportés au départ |
 | `delivery.cancelled` | Course annulée |
-| `ping` | Test envoyé depuis le back-office LETO |
+| `ping` | Test envoyé depuis le back-office VITE |
 
 Corps : `{ "id": "evt_…", "event": "stop.delivered", "createdAt": "…", "stopId": "…", "delivery": { …course… } }`.
 
@@ -114,4 +114,4 @@ const [t, v1] = header.split(',').map((x) => x.split('=')[1]);
 const ok = crypto.createHmac('sha256', SECRET).update(`${t}.${rawBody}`).digest('hex') === v1;
 ```
 
-Répondez `2xx` en moins de 10 secondes. Sinon LETO relance après 30 s, 2 min, 10 min, 1 h, 6 h et 24 h, puis abandonne (relance manuelle possible depuis le back-office). Un même événement peut arriver deux fois : dédoublonnez avec `id`.
+Répondez `2xx` en moins de 10 secondes. Sinon VITE relance après 30 s, 2 min, 10 min, 1 h, 6 h et 24 h, puis abandonne (relance manuelle possible depuis le back-office). Un même événement peut arriver deux fois : dédoublonnez avec `id`.

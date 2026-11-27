@@ -1,9 +1,9 @@
 import { Column, CreateDateColumn, Entity, Index, PrimaryGeneratedColumn } from 'typeorm';
 
 /**
- * Partenaire de l'API LETO (Adjamé-Smart, boutiques en ligne…) : crée des courses par l'API
+ * Partenaire de l'API VITE (Adjamé-Smart, boutiques en ligne…) : crée des courses par l'API
  * avec ses clés, reçoit les changements de statut par webhook. Ses courses sont passées
- * au nom de son compte client LETO (userId).
+ * au nom de son compte client VITE (userId).
  */
 @Entity('partners')
 export class Partner {

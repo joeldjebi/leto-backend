@@ -68,7 +68,7 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
     }
   }
 
-  /** Comptes clients LETO du destinataire (même numéro), pour le prévenir aussi */
+  /** Comptes clients VITE du destinataire (même numéro), pour le prévenir aussi */
   private async recipientUsers(phone: string) {
     const rows = await this.users.find({ where: { phone, role: Role.CLIENT }, select: { id: true } });
     return rows.map((u) => u.id);
@@ -216,7 +216,7 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
         const recipients = (await this.recipientUsers(near.s.recipientPhone)).filter((id) => id !== d.clientId);
         if (recipients.length) {
           push?.send(recipients, 'CLIENT_UPDATE', {
-            title: 'Votre livreur LETO arrive',
+            title: 'Votre livreur VITE arrive',
             body: 'Il sera chez vous dans quelques minutes. Préparez-vous à recevoir votre colis.',
           });
         }
@@ -234,7 +234,7 @@ export class TrackingGateway implements OnGatewayInit, OnGatewayConnection {
       const push = this.push();
       push?.send([d.clientId], 'CLIENT_UPDATE', { title: 'Le livreur est arrivé', body: `Il est chez ${stop.recipientName}`, deliveryId: d.id });
       const recipients = (await this.recipientUsers(stop.recipientPhone)).filter((id) => id !== d.clientId);
-      if (recipients.length) push?.send(recipients, 'CLIENT_UPDATE', { title: 'Votre livreur LETO est arrivé', body: 'Il vous attend avec votre colis.' });
+      if (recipients.length) push?.send(recipients, 'CLIENT_UPDATE', { title: 'Votre livreur VITE est arrivé', body: 'Il vous attend avec votre colis.' });
     }
   }
 

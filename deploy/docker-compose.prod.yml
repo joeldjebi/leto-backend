@@ -1,4 +1,4 @@
-# Base PostgreSQL de LETO en production — isolée, accessible uniquement depuis le serveur (127.0.0.1:5440)
+# Base PostgreSQL de VITE en production — isolée, accessible uniquement depuis le serveur (127.0.0.1:5440)
 # Lancement : docker compose --env-file .env -f deploy/docker-compose.prod.yml up -d
 name: leto-prod
 services:

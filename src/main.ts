@@ -16,7 +16,7 @@ async function bootstrap() {
   // Écoute sur le serveur seulement : on passe par Apache (HTTPS). HOST=0.0.0.0 pour tester depuis un téléphone sur le Wi-Fi
   const host = process.env.HOST || '127.0.0.1';
   await app.listen(port, host);
-  console.log(`LETO API démarrée sur http://${host}:${port}`);
+  console.log(`VITE API démarrée sur http://${host}:${port}`);
 }
 // Démarrage impossible (port déjà pris, base injoignable) : le processus s'arrête, pm2 le signale et le relance
 // (sinon il reste « online » sans répondre à personne)

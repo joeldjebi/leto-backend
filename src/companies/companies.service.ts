@@ -34,7 +34,7 @@ export class CompaniesService {
       openingHours: c.openingHours,
       openNow: open,
       status: open ? 'Ouverte aux commandes des clients' : closedText('Votre entreprise', c),
-      // Réglages de LETO (lecture seule pour le gérant)
+      // Réglages de VITE (lecture seule pour le gérant)
       openOrders: c.openOrders,
       liOpenOrders: c.liOpenOrders,
     };
@@ -103,7 +103,7 @@ export class CompaniesService {
     return { id: company.id, status: company.status };
   }
 
-  /** Décision de LETO sur une demande d'inscription */
+  /** Décision de VITE sur une demande d'inscription */
   async review(id: string, approve: boolean, note?: string) {
     const c = await this.companies.findOneBy({ id });
     if (!c || c.independent) throw new BadRequestException('Entreprise introuvable');
@@ -146,7 +146,7 @@ export class CompaniesService {
     return this.companies.findOneBy({ id });
   }
 
-  /** Grille de l'entreprise : sa grille propre (ou null) et la grille appliquée (fusionnée sur LETO) */
+  /** Grille de l'entreprise : sa grille propre (ou null) et la grille appliquée (fusionnée sur VITE) */
   async pricing(companyId: string) {
     const c = await this.companies.findOneBy({ id: companyId });
     const effective = this.settings.gridFor(c);
@@ -161,12 +161,12 @@ export class CompaniesService {
     };
   }
 
-  /** Le gérant indique les engins dont il dispose (un engin désactivé par LETO reste non proposé) */
+  /** Le gérant indique les engins dont il dispose (un engin désactivé par VITE reste non proposé) */
   async setVehicles(companyId: string, vehicles: string[]) {
     const list = [...new Set(vehicles)].filter((v) => (Object.values(VehicleType) as string[]).includes(v));
     if (!list.length) throw new BadRequestException('Choisissez au moins un engin');
     if (!list.some((v) => this.settings.pricing.vehicles[v as VehicleType].enabled)) {
-      throw new BadRequestException('Aucun de ces engins n’est proposé par LETO pour le moment');
+      throw new BadRequestException('Aucun de ces engins n’est proposé par VITE pour le moment');
     }
     await this.companies.update(companyId, { vehicles: list });
     return this.pricing(companyId);

@@ -21,7 +21,7 @@ export class Country {
   @Column({ type: 'int', default: 0 }) currencyDecimals: number;
   /** Proposé dans les sélecteurs d'indicatif */
   @Column({ default: false }) active: boolean;
-  /** Pays où LETO livre (tarifs, commissions et montants dans sa devise) ; un seul */
+  /** Pays où VITE livre (tarifs, commissions et montants dans sa devise) ; un seul */
   @Column({ default: false }) operating: boolean;
   @Column({ type: 'int', default: 100 }) sortOrder: number;
   @CreateDateColumn() createdAt: Date;

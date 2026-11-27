@@ -3,10 +3,10 @@ import { User } from '../users/user.entity';
 
 export enum IndependentStatus {
   DRAFT = 'DRAFT', // compte créé, dossier pas encore envoyé
-  PENDING = 'PENDING', // dossier envoyé, à vérifier par LETO
+  PENDING = 'PENDING', // dossier envoyé, à vérifier par VITE
   APPROVED = 'APPROVED', // validé : peut prendre des courses
   REJECTED = 'REJECTED', // refusé (motif) : le livreur corrige et renvoie
-  SUSPENDED = 'SUSPENDED', // suspendu par LETO
+  SUSPENDED = 'SUSPENDED', // suspendu par VITE
 }
 
 export interface IndependentEvent {
@@ -41,7 +41,7 @@ export const DOC_LABEL: Record<RenewableField, string> = {
 /** Documents avec une date de fin de validité */
 export const EXPIRING = { licenseUrl: 'licenseExpiresOn', insuranceUrl: 'insuranceExpiresOn' } as const;
 
-/** Document renouvelé par le LI, en attente de validation par LETO */
+/** Document renouvelé par le LI, en attente de validation par VITE */
 export interface Renewal {
   id: string;
   field: RenewableField;
@@ -108,7 +108,7 @@ export class IndependentProfile {
   @Column({ type: 'text', nullable: true }) registrationUrl: string | null; // carte grise
   @Column({ type: 'text', nullable: true }) insuranceUrl: string | null;
 
-  // Fin de validité (AAAA-MM-JJ) : après cette date, plus de courses jusqu'au renouvellement validé par LETO
+  // Fin de validité (AAAA-MM-JJ) : après cette date, plus de courses jusqu'au renouvellement validé par VITE
   @Column({ type: 'varchar', length: 10, nullable: true }) licenseExpiresOn: string | null;
   @Column({ type: 'varchar', length: 10, nullable: true }) insuranceExpiresOn: string | null;
   /** Rappels déjà envoyés (« licenseUrl:2027-01-31:soon ») */
@@ -131,7 +131,7 @@ export class IndependentProfile {
   @Index()
   @Column({ type: 'uuid', nullable: true }) affiliatedCompanyId: string | null;
   @Column({ type: 'timestamptz', nullable: true }) affiliatedAt: Date | null;
-  /** Commission de l'entreprise acceptée par le LI (plafonnée par LETO au moment du calcul) */
+  /** Commission de l'entreprise acceptée par le LI (plafonnée par VITE au moment du calcul) */
   @Column({ type: 'varchar', length: 7, nullable: true }) affCommissionType: 'PERCENT' | 'FIXED' | null;
   @Column({ type: 'double precision', nullable: true }) affCommissionValue: number | null;
   /** LI validé avant le rattachement obligatoire : peut travailler seul jusqu'à cette date */

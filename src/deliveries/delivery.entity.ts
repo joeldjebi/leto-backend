@@ -102,7 +102,7 @@ export class Delivery {
   @Column({ type: 'timestamptz', nullable: true })
   pickupCalledAt: Date | null;
 
-  /** Commission LETO (fixée à l'acceptation, prélevée sur le crédit de l'entreprise à la fin de la tournée) */
+  /** Commission VITE (fixée à l'acceptation, prélevée sur le crédit de l'entreprise à la fin de la tournée) */
   @Column({ type: 'int', nullable: true })
   commissionAmount: number | null;
   @Column({ type: 'text', nullable: true })

@@ -40,7 +40,7 @@ export const flagOf = (iso: string) =>
 
 /**
  * Numéro au format international (+2250701020304).
- * Accepte : +225…, 00225…, 225…, ou un numéro local (pays où LETO opère).
+ * Accepte : +225…, 00225…, 225…, ou un numéro local (pays où VITE opère).
  * `activeOnly` : n'accepte que les pays actifs (nouvelles saisies) ; la connexion accepte tous les pays connus.
  */
 export function normalizePhone(input: unknown, activeOnly = true): string | null {
@@ -106,7 +106,7 @@ export function IsPhone(opts: ValidationOptions & { optional?: boolean; anyCount
   };
 }
 
-/** Montant dans une devise (par défaut celle du pays où LETO opère) : « 1 500 F » */
+/** Montant dans une devise (par défaut celle du pays où VITE opère) : « 1 500 F » */
 export function money(amount: number | null | undefined, currencyCode?: string | null) {
   const c = Countries.byCode(currencyCode) ?? Countries.operating;
   const n = Number(amount ?? 0);

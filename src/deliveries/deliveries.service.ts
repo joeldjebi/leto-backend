@@ -108,7 +108,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     const forIndependents = false;
     if (opts.companyId) {
       company = await this.companies.findOneBy({ id: opts.companyId });
-      // Abonnée, en essai gratuit, ou abonnements désactivés par LETO
+      // Abonnée, en essai gratuit, ou abonnements désactivés par VITE
       if (!company?.active || !this.billing.subscribed(company)) throw new BadRequestException('Cette entreprise ne prend pas de commandes pour le moment');
       // Fermée (interrupteur ou horaires) : plus de commande de client à son nom ; ses propres saisies restent possibles
       if (opts.source !== 'COMPANY' && !openNow(company)) throw new BadRequestException(closedText(company.name, company));
@@ -800,13 +800,13 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     if (!res.affected) throw new BadRequestException('Action impossible pour cette course');
     const picked = await this.findOne(id);
     this.push.send([picked.clientId], 'CLIENT_UPDATE', { title: 'Colis récupérés', body: `${picked.driver?.name ?? 'Le livreur'} est en route vers les destinataires`, deliveryId: id });
-    // Destinataires qui ont un compte LETO (même numéro) : prévenus par push
+    // Destinataires qui ont un compte VITE (même numéro) : prévenus par push
     const phones = picked.stops.filter((s) => s.status === StopStatus.PENDING).map((s) => s.recipientPhone);
     if (phones.length) {
       const recipients = await this.users.find({ where: phones.map((phone) => ({ phone, role: Role.CLIENT })), select: { id: true } });
       const ids = recipients.map((u) => u.id).filter((uid) => uid !== picked.clientId);
       if (ids.length) {
-        this.push.send(ids, 'CLIENT_UPDATE', { title: 'Votre colis est en route', body: `${picked.driver?.name ?? 'Un livreur LETO'} vous l’apporte. Vous serez prévenu à son approche.` });
+        this.push.send(ids, 'CLIENT_UPDATE', { title: 'Votre colis est en route', body: `${picked.driver?.name ?? 'Un livreur VITE'} vous l’apporte. Vous serez prévenu à son approche.` });
       }
     }
     return this.notify(picked);
@@ -946,7 +946,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     await this.repo.update(id, { status: DeliveryStatus.DELIVERED, deliveredAt: new Date() });
     await this.billing.charge(id);
     const d = await this.repo.findOneBy({ id });
-    if (d) this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Course terminée', body: 'Tous les arrêts sont traités. Merci d’avoir choisi LETO !', deliveryId: id });
+    if (d) this.push.send([d.clientId], 'CLIENT_UPDATE', { title: 'Course terminée', body: 'Tous les arrêts sont traités. Merci d’avoir choisi VITE !', deliveryId: id });
     if (d?.companyId) {
       this.push.office({ companyId: this.officeOf(d) }, 'FINISHED', {
         title: 'Tournée terminée',
@@ -1029,9 +1029,9 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     await this.closeOffers(id);
     this.tracking.emitToUser(d.clientId, 'delivery:cancelled', { deliveryId: id, reason });
     if (d.driverId) this.tracking.emitToUser(d.driverId, 'delivery:cancelled', { deliveryId: id, reason });
-    this.push.send([d.clientId, d.driverId], 'CANCELLED', { title: 'Course annulée par LETO', body: reason, deliveryId: id });
+    this.push.send([d.clientId, d.driverId], 'CANCELLED', { title: 'Course annulée par VITE', body: reason, deliveryId: id });
     if (d.companyId ?? d.targetCompanyId) {
-      this.push.office({ companyId: this.officeOf(d) ?? d.targetCompanyId }, 'CANCELLED', { title: 'Course annulée par LETO', body: reason, link: `/courses/${id}`, deliveryId: id });
+      this.push.office({ companyId: this.officeOf(d) ?? d.targetCompanyId }, 'CANCELLED', { title: 'Course annulée par VITE', body: reason, link: `/courses/${id}`, deliveryId: id });
     }
     return this.notify(await this.findOne(id));
   }
@@ -1323,7 +1323,7 @@ export class DeliveriesService implements OnModuleInit, OnModuleDestroy {
     for (const id of drivers) this.tracking.emitToUser(id, 'offer:rejected', { deliveryId });
     this.push.send(drivers, 'UPDATED', {
       title: taken ? 'Course attribuée à un autre livreur' : 'Course plus disponible',
-      body: taken ? 'Un livreur a accepté la course au prix affiché.' : 'L’expéditeur ou LETO a annulé la course : votre proposition est retirée.',
+      body: taken ? 'Un livreur a accepté la course au prix affiché.' : 'L’expéditeur ou VITE a annulé la course : votre proposition est retirée.',
       deliveryId,
     });
   }

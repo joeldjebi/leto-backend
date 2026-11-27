@@ -19,7 +19,7 @@ export interface IndependentsConfig {
   registrationOpen: boolean;
   /** Interrupteur général : désactivé, aucun LI ne reçoit de course */
   enabled: boolean;
-  /** Commission LETO sur chaque course d'un LI (différente des entreprises) */
+  /** Commission VITE sur chaque course d'un LI (différente des entreprises) */
   commissionType: CommissionType;
   commissionValue: number;
   /** Plafonds de la commission qu'une entreprise peut prendre sur ses LI */
@@ -138,7 +138,7 @@ const REQUIRED: [keyof IndependentProfile, string][] = [
 
 /**
  * Livreurs indépendants (LI) : inscription dans l'app, dossier (identité, engin, photos),
- * validation par LETO, règles et commission propres.
+ * validation par VITE, règles et commission propres.
  */
 @Injectable()
 export class IndependentsService implements OnModuleInit, OnModuleDestroy {
@@ -221,14 +221,14 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     return new Date(new Date(this.cfg.transitionStartedAt ?? Date.now()).getTime() + this.cfg.transitionDays * DAY_MS);
   }
 
-  /** Commission d'une entreprise sur un LI, ramenée sous les plafonds de LETO */
+  /** Commission d'une entreprise sur un LI, ramenée sous les plafonds de VITE */
   capRule(type: CommissionType, value: number) {
     return type === 'PERCENT' ? Math.min(value, this.cfg.companyMaxPct) : Math.min(value, this.cfg.companyMaxFixed);
   }
 
   /** Accès aux courses d'un livreur (entreprise ou LI) */
   async access(companyId: string | null): Promise<DriverAccess> {
-    if (!companyId) return { independent: false, team: null, blocker: 'Livreur sans entreprise : contactez LETO', cod: false, open: false };
+    if (!companyId) return { independent: false, team: null, blocker: 'Livreur sans entreprise : contactez VITE', cod: false, open: false };
     const c = await this.companies.findOneBy({ id: companyId });
     if (!c?.independent) return { independent: false, team: companyId, blocker: null, cod: true, open: c?.openOrders !== false };
     const p = await this.profiles.findOneBy({ companyId });
@@ -319,7 +319,7 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
 
   /** Raison pour laquelle un LI ne peut pas travailler (null = il peut) */
   async blocker(companyId: string, profile?: IndependentProfile | null): Promise<string | null> {
-    if (!this.cfg.enabled) return 'Les livreurs indépendants sont désactivés par LETO pour le moment';
+    if (!this.cfg.enabled) return 'Les livreurs indépendants sont désactivés par VITE pour le moment';
     const p = profile === undefined ? await this.profiles.findOneBy({ companyId }) : profile;
     switch (p?.status) {
       case IndependentStatus.APPROVED: {
@@ -330,11 +330,11 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
         return 'Rattachez-vous à une entreprise de livraison pour recevoir des courses : acceptez une invitation dans l’app';
       }
       case IndependentStatus.PENDING:
-        return 'Votre dossier est en cours de vérification par LETO';
+        return 'Votre dossier est en cours de vérification par VITE';
       case IndependentStatus.REJECTED:
         return 'Votre dossier a été refusé : corrigez-le dans l’app';
       case IndependentStatus.SUSPENDED:
-        return 'Votre compte est suspendu par LETO';
+        return 'Votre compte est suspendu par VITE';
       default:
         return 'Complétez et envoyez votre dossier pour commencer';
     }
@@ -396,7 +396,7 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
   async update(userId: string, dto: DossierInput) {
     const p = await this.mine(userId);
     if (p.status !== IndependentStatus.DRAFT && p.status !== IndependentStatus.REJECTED) {
-      throw new BadRequestException(p.status === IndependentStatus.PENDING ? 'Dossier en cours de vérification : modification impossible' : 'Dossier déjà validé : contactez LETO pour le modifier');
+      throw new BadRequestException(p.status === IndependentStatus.PENDING ? 'Dossier en cours de vérification : modification impossible' : 'Dossier déjà validé : contactez VITE pour le modifier');
     }
     const fields = ['birthDate', 'commune', 'address', 'idType', 'idNumber', 'emergencyName', 'emergencyPhone', 'vehicleType', 'vehicleBrand', 'vehiclePlate', 'licenseNumber', ...DOC_FIELDS] as const;
     for (const k of fields) {
@@ -422,7 +422,7 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     return this.withLinks(p);
   }
 
-  /** Envoi du dossier à LETO */
+  /** Envoi du dossier à VITE */
   async submit(userId: string) {
     const p = await this.mine(userId);
     if (p.status === IndependentStatus.PENDING) return this.withLinks(p);
@@ -525,7 +525,7 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     await this.profiles.save(p);
     this.notify.send([p.userId], 'ASSIGNED', {
       title: 'Vous pouvez prendre des courses',
-      body: `LETO vous permet de travailler seul jusqu’au ${end.toLocaleDateString('fr-FR')}. D’ici là, rattachez-vous à une entreprise (« Mon entreprise »).`,
+      body: `VITE vous permet de travailler seul jusqu’au ${end.toLocaleDateString('fr-FR')}. D’ici là, rattachez-vous à une entreprise (« Mon entreprise »).`,
     });
     this.tracking.emitToUser(p.userId, 'deliveries:changed', {});
     this.tracking.emitToUser(p.userId, 'affiliation:changed', {});
@@ -533,14 +533,14 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     return this.one(id);
   }
 
-  /** Note moyenne trop basse : suspension automatique (si le SA l'a activée), LETO examine ensuite le cas */
+  /** Note moyenne trop basse : suspension automatique (si le SA l'a activée), VITE examine ensuite le cas */
   async autoSuspend(driverId: string, avg: number, n: number) {
     if (!this.cfg.autoSuspendEnabled || avg >= this.cfg.autoSuspendBelow) return false;
     const p = await this.profiles.findOneBy({ userId: driverId });
     if (!p || p.status !== IndependentStatus.APPROVED) return false;
     const note = `Suspension automatique : note moyenne ${avg.toFixed(1)} sur les ${n} dernières courses notées (seuil ${this.cfg.autoSuspendBelow})`;
-    await this.review(p.id, 'LETO (automatique)', IndependentStatus.SUSPENDED, 'SUSPENDED', [IndependentStatus.APPROVED], note);
-    this.notify.send([p.userId], 'CANCELLED', { title: 'Compte suspendu', body: `${note}. LETO va examiner votre dossier.` });
+    await this.review(p.id, 'VITE (automatique)', IndependentStatus.SUSPENDED, 'SUSPENDED', [IndependentStatus.APPROVED], note);
+    this.notify.send([p.userId], 'CANCELLED', { title: 'Compte suspendu', body: `${note}. VITE va examiner votre dossier.` });
     const who = await this.users.findOneBy({ id: driverId });
     this.notify.office({ sa: true, companyId: p.affiliatedCompanyId }, 'RATING', {
       title: 'Livreur indépendant suspendu automatiquement',
@@ -568,7 +568,7 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     await this.db.query(`UPDATE independent_profiles SET history = history || $2::jsonb WHERE id = $1`, [profileId, JSON.stringify([event])]);
   }
 
-  /** Le LI envoie un document renouvelé (nouvelle photo et/ou nouvelle date), validé ensuite par LETO */
+  /** Le LI envoie un document renouvelé (nouvelle photo et/ou nouvelle date), validé ensuite par VITE */
   async submitRenewal(userId: string, dto: { field: RenewableField; url?: string; expiresOn?: string }) {
     const p = await this.mine(userId);
     if (p.status !== IndependentStatus.APPROVED && p.status !== IndependentStatus.SUSPENDED) {
@@ -602,7 +602,7 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     if (p.affiliatedCompanyId) this.tracking.emitToCompany(p.affiliatedCompanyId, 'affiliations:changed', {});
   }
 
-  /** LETO valide un document renouvelé : il remplace l'ancien */
+  /** VITE valide un document renouvelé : il remplace l'ancien */
   async approveRenewal(id: string, renewalId: string, by: string) {
     const p = await this.profiles.findOneBy({ id });
     const r = p?.renewals?.find((x) => x.id === renewalId);
@@ -620,7 +620,7 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     const unblocked = !this.expiredText(p);
     this.notify.send([p.userId], 'CLIENT_UPDATE', {
       title: 'Document validé',
-      body: `LETO a validé votre ${DOC_LABEL[r.field]}.${unblocked ? '' : ' Un autre document reste à renouveler.'}`,
+      body: `VITE a validé votre ${DOC_LABEL[r.field]}.${unblocked ? '' : ' Un autre document reste à renouveler.'}`,
     });
     if (p.affiliatedCompanyId) {
       const who = await this.users.findOneBy({ id: p.userId });
@@ -647,7 +647,7 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
     return this.one(id);
   }
 
-  /** LETO corrige les dates de fin de validité (dossiers validés avant les dates, erreur de saisie) */
+  /** VITE corrige les dates de fin de validité (dossiers validés avant les dates, erreur de saisie) */
   async setExpiry(id: string, dto: { licenseExpiresOn?: string | null; insuranceExpiresOn?: string | null }, by: string) {
     const p = await this.profiles.findOneBy({ id });
     if (!p) throw new NotFoundException('Dossier introuvable');
@@ -695,7 +695,7 @@ export class IndependentsService implements OnModuleInit, OnModuleDestroy {
         if (state === 'SOON') {
           this.notify.send([p.userId], 'UPDATED', {
             title: `Votre ${doc} expire le ${frDate(d!)}`,
-            body: pending ? 'Le nouveau document est en cours de vérification par LETO.' : 'Envoyez le nouveau document dans l’app, rubrique « Mes documents », pour continuer à recevoir des courses.',
+            body: pending ? 'Le nouveau document est en cours de vérification par VITE.' : 'Envoyez le nouveau document dans l’app, rubrique « Mes documents », pour continuer à recevoir des courses.',
           });
           if (p.affiliatedCompanyId) {
             this.notify.office({ companyId: p.affiliatedCompanyId }, 'AFFILIATION', {

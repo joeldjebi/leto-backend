@@ -1,5 +1,5 @@
 /**
- * Grille tarifaire LETO — tout se règle ici.
+ * Grille tarifaire VITE — tout se règle ici.
  * Prix = max(minimum, base + prixKm × distance) × facteur délai, plafonné dans le Grand Abidjan,
  * (+ arrêts supplémentaires, + frais paiement à la livraison), arrondi aux 50 FCFA supérieurs.
  * Paiement de la course : en espèces uniquement.

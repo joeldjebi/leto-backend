@@ -128,7 +128,7 @@ export class MapStyleService implements OnModuleInit {
       .replace('{y}', '15898');
     let res: Response;
     try {
-      res = await fetch(url, { headers: { 'User-Agent': 'LETO/1.0' }, signal: AbortSignal.timeout(8000) });
+      res = await fetch(url, { headers: { 'User-Agent': 'VITE/1.0' }, signal: AbortSignal.timeout(8000) });
     } catch {
       throw new BadRequestException(`${style.label} : serveur de tuiles injoignable`);
     }

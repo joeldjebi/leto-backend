@@ -125,7 +125,7 @@ export class CountriesService implements OnModuleInit {
     if (dup && dup.id !== id) throw new ConflictException(`Le pays ${c.iso} existe déjà`);
     const sameDial = await this.repo.findOneBy({ dialCode: c.dialCode });
     if (sameDial && sameDial.id !== id) throw new ConflictException(`L’indicatif +${c.dialCode} est déjà utilisé par ${sameDial.name}`);
-    if (c.operating && !c.active) throw new BadRequestException('Le pays où LETO livre doit rester actif');
+    if (c.operating && !c.active) throw new BadRequestException('Le pays où VITE livre doit rester actif');
     if (c.phoneExample) {
       const digits = c.phoneExample.replace(/\D/g, '');
       const ok = digits.length === c.phoneLength || (c.trunkPrefix && digits.length === c.phoneLength + c.trunkPrefix.length && digits.startsWith(c.trunkPrefix));
@@ -136,7 +136,7 @@ export class CountriesService implements OnModuleInit {
   private async saveAndBroadcast(c: Country) {
     const saved = await this.data.transaction(async (m) => {
       const s = await m.save(Country, c);
-      // Un seul pays « où LETO livre »
+      // Un seul pays « où VITE livre »
       if (s.operating) await m.createQueryBuilder().update(Country).set({ operating: false }).where('id != :id', { id: s.id }).execute();
       return s;
     });
@@ -168,7 +168,7 @@ export class CountriesService implements OnModuleInit {
     if (!c) throw new NotFoundException('Pays introuvable');
     const wasOperating = c.operating;
     const before = { dial: c.dialCode, len: c.phoneLength, trunk: c.trunkPrefix };
-    if (wasOperating && dto.operating === false) throw new BadRequestException('Choisissez d’abord un autre pays où LETO livre');
+    if (wasOperating && dto.operating === false) throw new BadRequestException('Choisissez d’abord un autre pays où VITE livre');
     Object.assign(c, Object.fromEntries(Object.entries(dto).filter(([, v]) => v !== undefined)));
     c.iso = c.iso.toUpperCase();
     c.currencyCode = c.currencyCode.toUpperCase();
@@ -190,7 +190,7 @@ export class CountriesService implements OnModuleInit {
   async remove(id: string) {
     const c = await this.repo.findOneBy({ id });
     if (!c) throw new NotFoundException('Pays introuvable');
-    if (c.operating) throw new BadRequestException('Impossible de supprimer le pays où LETO livre');
+    if (c.operating) throw new BadRequestException('Impossible de supprimer le pays où VITE livre');
     const used = await this.usersWithDial(c.dialCode);
     if (used) throw new BadRequestException(`${used} compte(s) utilisent l’indicatif +${c.dialCode} : désactivez le pays plutôt que de le supprimer`);
     await this.repo.delete(id);

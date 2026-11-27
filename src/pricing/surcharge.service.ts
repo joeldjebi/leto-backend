@@ -90,7 +90,7 @@ export class SurchargeService implements OnModuleInit, OnModuleDestroy {
     return !!fresh && this.weather.mm !== null && this.weather.mm >= r.rainThresholdMm;
   }
 
-  /** Majorations applicables à un trajet maintenant (règles LETO, communes à toutes les entreprises) */
+  /** Majorations applicables à un trajet maintenant (règles VITE, communes à toutes les entreprises) */
   context(points: { lat: number; lng: number }[], at = new Date()): { items: SurchargeItem[]; pct: number } {
     const grid = this.settings.pricing;
     const r = grid.surcharges;

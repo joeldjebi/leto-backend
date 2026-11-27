@@ -25,7 +25,7 @@ const ruleLabel = (type: RuleType | null, value: number | null) =>
 /**
  * Rattachement des livreurs indépendants (LI) aux entreprises de livraison :
  * vivier des LI validés, invitations acceptées par le LI, commission de l'entreprise,
- * gains gardés par LETO (retrait ou transfert vers le crédit).
+ * gains gardés par VITE (retrait ou transfert vers le crédit).
  */
 @Injectable()
 export class AffiliationsService {
@@ -106,7 +106,7 @@ export class AffiliationsService {
           id: r.id, name: r.name, selfieUrl: r.selfieUrl, commune: r.commune, vehicleType: r.vehicleType, vehicleBrand: r.vehicleBrand,
           plate: maskPlate(r.vehiclePlate), legacyUntil: r.legacyUntil, reviewedAt: r.reviewedAt,
           ratingAvg: r.ratingAvg, ratingCount: r.ratingCount, online: r.online, completed: r.completed, inviteId: r.inviteId, isNew: r.isNew,
-          // Vérifié par LETO à la validation du dossier ; le permis et l'assurance avec leur validité
+          // Vérifié par VITE à la validation du dossier ; le permis et l'assurance avec leur validité
           verified: {
             identity: !!(r.idFrontUrl && r.idBackUrl),
             license: r.licenseUrl ? docs.license.state : null,
@@ -153,7 +153,7 @@ export class AffiliationsService {
     const { maxPct, maxFixed } = this.caps();
     if (type !== 'PERCENT' && type !== 'FIXED') throw new BadRequestException('Commission : pourcentage ou montant fixe');
     if (!Number.isFinite(value) || value < 0) throw new BadRequestException('Commission invalide');
-    if (type === 'PERCENT' && value > maxPct) throw new BadRequestException(`Commission maximum autorisée par LETO : ${maxPct} %`);
+    if (type === 'PERCENT' && value > maxPct) throw new BadRequestException(`Commission maximum autorisée par VITE : ${maxPct} %`);
     if (type === 'FIXED' && (value > maxFixed || !Number.isInteger(value))) throw new BadRequestException(`Commission fixe : nombre entier, ${money(maxFixed)} maximum`);
     const v = type === 'PERCENT' ? Math.round(value * 100) / 100 : value;
     await this.companies.update(companyId, { liCommissionType: type, liCommissionValue: v });
@@ -227,11 +227,11 @@ export class AffiliationsService {
     if (!company.liCommissionType || company.liCommissionValue == null) {
       throw new BadRequestException(`${company.name} n’a pas encore fixé sa commission sur les livreurs indépendants : elle doit le faire dans sa page « Indépendants »`);
     }
-    await this.invite(companyId, profileId, 'Proposé par LETO', `LETO (${by})`);
+    await this.invite(companyId, profileId, 'Proposé par VITE', `VITE (${by})`);
     await this.independents.logEvent(profileId, { action: 'PROPOSED', by, note: `Invitation de ${company.name} envoyée au livreur` });
     const [{ name }] = await this.db.query(`SELECT u.name FROM independent_profiles p JOIN users u ON u.id = p."userId" WHERE p.id = $1`, [profileId]);
     this.push.office({ companyId }, 'AFFILIATION', {
-      title: 'LETO vous propose un livreur indépendant',
+      title: 'VITE vous propose un livreur indépendant',
       body: `${name} a reçu une invitation de votre part (commission ${ruleLabel(company.liCommissionType, company.liCommissionValue)}). Il apparaîtra dans vos livreurs dès qu’il l’accepte.`,
       link: '/independants',
     });
@@ -316,7 +316,7 @@ export class AffiliationsService {
       affiliatedAt: p.affiliatedAt,
       links: Object.fromEntries(DOC_FIELDS.map((k) => [k, full.links[k]])),
       docs: full.docs,
-      // Renouvellements en attente : l'entreprise voit lesquels, LETO les vérifie
+      // Renouvellements en attente : l'entreprise voit lesquels, VITE les vérifie
       renewals: full.renewals.map((r) => ({ field: r.field, label: r.label, expiresOn: r.expiresOn, at: r.at })),
       updateRequests: full.updateRequests.filter((r) => r.companyId === companyId),
       views: p.history.filter((h) => h.action === 'VIEWED' || h.action === 'AFFILIATED' || h.action === 'UPDATE_REQUESTED' || h.action.startsWith('RENEWAL') || h.action === 'EXPIRED').slice(-20).reverse(),
@@ -389,7 +389,7 @@ export class AffiliationsService {
     if (!company?.active) throw new BadRequestException('Cette entreprise n’est plus active');
     await this.db.transaction(async (m: EntityManager) => {
       if (inv.kind === 'JOIN') {
-        if (p.status !== IndependentStatus.APPROVED) throw new BadRequestException('Votre dossier doit être validé par LETO');
+        if (p.status !== IndependentStatus.APPROVED) throw new BadRequestException('Votre dossier doit être validé par VITE');
         const fresh = await m.findOneBy(IndependentProfile, { id: p.id });
         if (fresh?.affiliatedCompanyId) throw new ConflictException('Vous êtes déjà rattaché : quittez d’abord votre entreprise');
         await m.update(IndependentProfile, p.id, {

@@ -1,10 +1,10 @@
-# Déploiement de LETO sur le VPS (Apache)
+# Déploiement de VITE sur le VPS (Apache)
 
 - **https://leto.performx.online** : back-office (fichiers statiques servis par Apache)
 - **https://api.leto.performx.online** : API NestJS + temps réel (Apache → `127.0.0.1:3100`)
 - PostgreSQL dans Docker, accessible seulement depuis le serveur (`127.0.0.1:5440`)
 
-Rien n'est modifié sur les autres projets du serveur : base, port, dossier et hôtes virtuels sont propres à LETO.
+Rien n'est modifié sur les autres projets du serveur : base, port, dossier et hôtes virtuels sont propres à VITE.
 
 ---
 
@@ -15,7 +15,7 @@ apache2 -v                                   # Apache présent (Ubuntu/Debian)
 docker --version && docker compose version   # Docker pour la base
 node -v                                      # Node 18 ou plus (sinon étape 2)
 sudo ss -ltnp | grep -E ':3100|:5440' || echo "ports 3100 et 5440 libres"
-sudo apache2ctl -S 2>/dev/null | grep -i leto || echo "aucun hôte virtuel LETO existant"
+sudo apache2ctl -S 2>/dev/null | grep -i leto || echo "aucun hôte virtuel VITE existant"
 ```
 
 Si un port est déjà pris, choisissez-en un autre (`PORT` / `DB_PORT` dans `.env`, et le port dans `deploy/apache/api.leto.performx.online.conf`).
@@ -85,7 +85,7 @@ pm2 start deploy/ecosystem.config.cjs
 pm2 save
 pm2 startup          # puis lancer la commande « sudo env PATH=… » qu'il affiche
 curl -s -o /dev/null -w "%{http_code}\n" http://127.0.0.1:3100/auth/me   # 401 = l'API répond
-pm2 logs leto-api --lines 20                                              # « LETO API démarrée … »
+pm2 logs leto-api --lines 20                                              # « VITE API démarrée … »
 ```
 
 ## 7. Back-office

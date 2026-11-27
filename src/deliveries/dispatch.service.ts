@@ -178,7 +178,7 @@ export class DispatchService implements OnModuleInit, OnModuleDestroy {
           AND u."lastLocationAt" > $1 AND u."lastLat" IS NOT NULL
           AND (
             -- Livreurs des entreprises (de l'entreprise visée, s'il y en a une)
-            -- (commande ouverte : seulement si LETO laisse l'entreprise voir les commandes ouvertes)
+            -- (commande ouverte : seulement si VITE laisse l'entreprise voir les commandes ouvertes)
             (NOT c.independent AND NOT $3 AND (($2::uuid IS NULL AND c."openOrders") OR u."companyId" = $2))
             -- Livreurs indépendants validés : rattachés à l'entreprise visée, ou course ouverte (rattachés ou en transition) ; paiement à la livraison si leur entreprise l'autorise
             OR ($7 AND c.independent AND p.status = 'APPROVED' AND ${DOCS_VALID_SQL('p')}

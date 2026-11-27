@@ -32,11 +32,11 @@ const DEFAULT: LandingContent = {
     ctaSecondary: 'Devenir partenaire',
   },
   steps: [
-    { title: 'Posez l’adresse. Le prix s’affiche.', text: 'Aïcha, au Plateau, envoie un colis à Moussa, à Marcory. Elle place l’adresse sur la carte : LETO calcule le trajet par les vraies routes et affiche le prix avant de valider.' },
+    { title: 'Posez l’adresse. Le prix s’affiche.', text: 'Aïcha, au Plateau, envoie un colis à Moussa, à Marcory. Elle place l’adresse sur la carte : VITE calcule le trajet par les vraies routes et affiche le prix avant de valider.' },
     { title: 'Le livreur avance. Vous le voyez.', text: 'Koffi traverse la lagune par le pont. Aïcha et Moussa suivent la moto en temps réel, même écran verrouillé, avec l’heure d’arrivée qui se met à jour.' },
     { title: 'Un code. Le bon destinataire.', text: 'Moussa donne son code à 4 chiffres : le colis ne peut être remis qu’à lui. Absent ? Le livreur prouve son passage par GPS et photo.' },
   ],
-  tour: { title: 'Dix adresses. Une course. Le bon ordre.', text: 'LETO enchaîne les arrêts au plus court, ici 6 clients entre Cocody et la Riviera. Et plus il y a d’arrêts, moins chaque livraison coûte.' },
+  tour: { title: 'Dix adresses. Une course. Le bon ordre.', text: 'VITE enchaîne les arrêts au plus court, ici 6 clients entre Cocody et la Riviera. Et plus il y a d’arrêts, moins chaque livraison coûte.' },
   price: { title1: '2 200 F', title2: 'maximum.', text: 'À moto, partout dans le Grand Abidjan, en livraison Standard. Le prix dépend de la distance : souvent bien moins.' },
   trust: {
     title: 'Jour et nuit, des livreurs vérifiés.',
@@ -51,15 +51,15 @@ const DEFAULT: LandingContent = {
     companyTitle: 'Votre flotte, vos prix, nos clients.',
     companyText: 'Carte en direct de vos livreurs, affectation des courses, encaissements, carnet des livreurs et vos propres tarifs, dans un back-office complet.',
     driverTitle: 'Votre engin. Vos horaires.',
-    driverText: 'Inscrivez-vous dans l’app avec votre pièce et les papiers de votre engin. Une fois validé par LETO, recevez les courses autour de vous, avec un son, même écran verrouillé.',
+    driverText: 'Inscrivez-vous dans l’app avec votre pièce et les papiers de votre engin. Une fois validé par VITE, recevez les courses autour de vous, avec un son, même écran verrouillé.',
   },
   faq: [
     { q: 'Comment je paie ma livraison ?', a: 'En espèces, au livreur. Le prix est affiché et fixé avant de commander.' },
-    { q: 'Combien d’adresses dans une même course ?', a: 'Jusqu’à 10 destinataires. LETO calcule l’ordre le plus court et le prix baisse avec le nombre d’arrêts.' },
+    { q: 'Combien d’adresses dans une même course ?', a: 'Jusqu’à 10 destinataires. VITE calcule l’ordre le plus court et le prix baisse avec le nombre d’arrêts.' },
     { q: 'Que se passe-t-il si le destinataire est absent ?', a: 'Le livreur attend sur place, prouve son passage (GPS et photo) et vous êtes prévenu. Vous pouvez contester depuis l’app.' },
-    { q: 'L’app est-elle disponible sur iPhone ?', a: 'Pas encore : LETO est disponible sur Android (fichier APK à télécharger ici). La version iPhone arrive bientôt.' },
+    { q: 'L’app est-elle disponible sur iPhone ?', a: 'Pas encore : VITE est disponible sur Android (fichier APK à télécharger ici). La version iPhone arrive bientôt.' },
   ],
-  final: { title: 'Votre prochain colis part maintenant.', text: 'Téléchargez LETO sur Android, posez l’adresse, c’est parti.' },
+  final: { title: 'Votre prochain colis part maintenant.', text: 'Téléchargez VITE sur Android, posez l’adresse, c’est parti.' },
   contact: { phone: '', email: '', whatsapp: '', address: 'Abidjan, Côte d’Ivoire' },
   apk: { url: null, version: '', sizeMb: null, updatedAt: null },
 };

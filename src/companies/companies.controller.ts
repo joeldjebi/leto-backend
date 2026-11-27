@@ -21,7 +21,7 @@ export class CompaniesController {
     return this.service.findAll(['PENDING', 'APPROVED', 'REJECTED'].includes(status ?? '') ? status : undefined);
   }
 
-  // ----- Inscription en ligne (landing page), validée par LETO -----
+  // ----- Inscription en ligne (landing page), validée par VITE -----
   @Public()
   @Post('apply')
   async apply(@Body() dto: ApplyCompanyDto) {

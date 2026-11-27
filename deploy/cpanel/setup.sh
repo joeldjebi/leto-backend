@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Mise en ligne de LETO sur un serveur cPanel/WHM (à lancer en root) :
+# Mise en ligne de VITE sur un serveur cPanel/WHM (à lancer en root) :
 #   CPUSER=performx bash deploy/cpanel/setup.sh
 # Crée leto.performx.online (back-office) et api.leto.performx.online (API) dans le compte cPanel,
 # configure le relais Apache vers l'API et demande les certificats HTTPS (AutoSSL).

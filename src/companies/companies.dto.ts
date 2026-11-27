@@ -24,7 +24,7 @@ export class CreateCompanyDto {
   managerPassword: string;
 }
 
-/** Demande d'inscription d'une entreprise de livraison (depuis la landing page), validée ensuite par LETO */
+/** Demande d'inscription d'une entreprise de livraison (depuis la landing page), validée ensuite par VITE */
 export class ApplyCompanyDto extends CreateCompanyDto {
   @IsOptional() @IsString() @MaxLength(40) commune?: string;
   @IsOptional() @Type(() => Number) @IsInt() @Min(0) @Max(10000) drivers?: number;

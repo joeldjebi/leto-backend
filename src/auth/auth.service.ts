@@ -34,7 +34,7 @@ export class AuthService implements OnApplicationBootstrap {
 
     if (!sa) {
       await this.users.save({
-        name: 'Super Admin LETO',
+        name: 'Super Admin VITE',
         phone,
         passwordHash: await bcrypt.hash(password, 10),
         role: Role.SUPER_ADMIN,
@@ -98,7 +98,7 @@ export class AuthService implements OnApplicationBootstrap {
     const admin = (process.env.ADMIN_ORIGIN ?? 'https://sa.leto.performx.online').replace(/\/$/, '');
     const site = (process.env.SITE_URL ?? 'https://leto.performx.online').replace(/\/$/, '');
     if (origin === admin && role !== Role.SUPER_ADMIN) {
-      throw new ForbiddenException(`Cet espace est réservé à l’administration LETO. Entreprises de livraison : connectez-vous sur ${site.replace(/^https?:\/\//, '')}/pro`);
+      throw new ForbiddenException(`Cet espace est réservé à l’administration VITE. Entreprises de livraison : connectez-vous sur ${site.replace(/^https?:\/\//, '')}/pro`);
     }
     if (origin !== admin && role === Role.SUPER_ADMIN) {
       throw new ForbiddenException('Le compte administrateur se connecte uniquement sur l’espace d’administration.');
@@ -116,10 +116,10 @@ export class AuthService implements OnApplicationBootstrap {
       throw new UnauthorizedException('Numéro ou mot de passe incorrect');
     }
     if (user.company?.status === 'PENDING') {
-      throw new UnauthorizedException('Votre demande d’inscription est en cours de validation par LETO. Vous serez contacté dès qu’elle est acceptée.');
+      throw new UnauthorizedException('Votre demande d’inscription est en cours de validation par VITE. Vous serez contacté dès qu’elle est acceptée.');
     }
     if (user.company?.status === 'REJECTED') {
-      throw new UnauthorizedException(`Votre demande d’inscription n’a pas été acceptée${user.company.reviewNote ? ` : ${user.company.reviewNote}` : ''}. Contactez LETO.`);
+      throw new UnauthorizedException(`Votre demande d’inscription n’a pas été acceptée${user.company.reviewNote ? ` : ${user.company.reviewNote}` : ''}. Contactez VITE.`);
     }
     if (!user.active || (user.company && !user.company.active)) {
       throw new UnauthorizedException('Compte désactivé');
@@ -141,7 +141,7 @@ export class AuthService implements OnApplicationBootstrap {
     if (dto.accountType !== undefined && user.role === Role.CLIENT) changes.accountType = dto.accountType;
     if (dto.plate !== undefined && user.role === Role.DRIVER) {
       const independent = user.companyId && (await this.users.manager.query(`SELECT 1 FROM companies WHERE id = $1 AND independent`, [user.companyId])).length;
-      if (independent) throw new BadRequestException('Votre immatriculation est celle de votre dossier : contactez LETO pour la modifier');
+      if (independent) throw new BadRequestException('Votre immatriculation est celle de votre dossier : contactez VITE pour la modifier');
       changes.plate = normalizePlate(dto.plate);
     }
     if (dto.avatarUrl !== undefined) {

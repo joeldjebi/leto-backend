@@ -60,12 +60,12 @@ export class UploadsController {
     if (existsSync(path)) {
       if (apk) {
         res.setHeader('Content-Type', 'application/vnd.android.package-archive');
-        res.setHeader('Content-Disposition', 'attachment; filename="LETO.apk"');
+        res.setHeader('Content-Disposition', 'attachment; filename="VITE.apk"');
       }
       return res.sendFile(path);
     }
     if (!this.storage.usesWasabi) throw new NotFoundException();
     res.setHeader('Cache-Control', 'private, max-age=3000');
-    return res.redirect(302, await this.storage.signedUrl(name, 'photos', 3600, apk ? 'attachment; filename="LETO.apk"' : undefined));
+    return res.redirect(302, await this.storage.signedUrl(name, 'photos', 3600, apk ? 'attachment; filename="VITE.apk"' : undefined));
   }
 }

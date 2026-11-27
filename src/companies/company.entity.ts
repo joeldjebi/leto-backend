@@ -16,7 +16,7 @@ export class Company {
   @Column({ default: true })
   active: boolean;
 
-  /** Crédit prépayé (FCFA) : la commission LETO de chaque course y est prélevée */
+  /** Crédit prépayé (FCFA) : la commission VITE de chaque course y est prélevée */
   @Column({ type: 'int', default: 0 })
   credit: number;
 
@@ -38,7 +38,7 @@ export class Company {
   @Column({ type: 'double precision', default: 0 })
   driverSharePercent: number;
 
-  /** Grille tarifaire propre à l'entreprise (prix seulement ; null = grille LETO) */
+  /** Grille tarifaire propre à l'entreprise (prix seulement ; null = grille VITE) */
   @Column({ type: 'jsonb', nullable: true })
   pricing: Record<string, unknown> | null;
 
@@ -46,11 +46,11 @@ export class Company {
   @Column({ type: 'jsonb', nullable: true })
   vehicles: string[] | null;
 
-  /** Inscription en ligne : PENDING (à valider par LETO), APPROVED, REJECTED. Créées par l'admin : APPROVED */
+  /** Inscription en ligne : PENDING (à valider par VITE), APPROVED, REJECTED. Créées par l'admin : APPROVED */
   @Column({ type: 'varchar', length: 10, default: 'APPROVED' })
   status: 'PENDING' | 'APPROVED' | 'REJECTED';
 
-  /** Demande d'inscription : commune, taille de flotte, message ; décision de LETO */
+  /** Demande d'inscription : commune, taille de flotte, message ; décision de VITE */
   @Column({ type: 'jsonb', nullable: true })
   application: { commune?: string; drivers?: number; vehicles?: string[]; message?: string; managerName?: string; managerPhone?: string; appliedAt?: string } | null;
   @Column({ type: 'text', nullable: true })

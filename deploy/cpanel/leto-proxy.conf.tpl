@@ -1,4 +1,4 @@
-# LETO — relais Apache vers l'API NestJS (127.0.0.1:__PORT__) + temps réel (WebSocket)
+# VITE — relais Apache vers l'API NestJS (127.0.0.1:__PORT__) + temps réel (WebSocket)
 # Inclus par cPanel dans l'hôte virtuel de api.leto.performx.online (conservé lors des mises à jour cPanel)
 ProxyRequests Off
 ProxyPreserveHost On

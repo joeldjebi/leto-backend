@@ -88,7 +88,7 @@ export class BillingController {
   ) {}
 
   private async name(user: AuthUser) {
-    return (await this.users.findOneBy({ id: user.sub }))?.name ?? 'LETO';
+    return (await this.users.findOneBy({ id: user.sub }))?.name ?? 'VITE';
   }
 
   // ----- Gérant -----

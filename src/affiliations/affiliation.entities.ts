@@ -54,7 +54,7 @@ export enum EarningType {
 }
 
 /**
- * Gains de l'entreprise (commissions prélevées sur le solde de ses LI), gardés par LETO.
+ * Gains de l'entreprise (commissions prélevées sur le solde de ses LI), gardés par VITE.
  * Disponibles après le délai de sécurité (litiges), puis retirables ou transférables vers le crédit.
  */
 @Entity('company_earnings')
@@ -90,7 +90,7 @@ export class CompanyEarning {
 }
 
 export enum WithdrawalStatus {
-  PENDING = 'PENDING', // demandée, à payer par LETO
+  PENDING = 'PENDING', // demandée, à payer par VITE
   PAID = 'PAID', // payée (preuve jointe)
   REJECTED = 'REJECTED', // refusée (motif) : montant rendu
 }

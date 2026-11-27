@@ -135,7 +135,7 @@ export class PricingController {
     // LI pouvant travailler : avec les livreurs des entreprises (ceux de l'entreprise choisie si elle est précisée)
     void independent;
     const working = await this.independents.working();
-    // Commande ouverte : seulement les livreurs que LETO laisse voir les commandes ouvertes
+    // Commande ouverte : seulement les livreurs que VITE laisse voir les commandes ouvertes
     const noLi = new Set((await this.users.manager.query(`SELECT id FROM companies WHERE NOT "liOpenOrders"`)).map((r: { id: string }) => r.id));
     return drivers
       .filter((d) => d.company?.active !== false && d.lastLat != null && d.lastLng != null)

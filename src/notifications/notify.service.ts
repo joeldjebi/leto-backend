@@ -6,7 +6,7 @@ import { Setting } from '../settings/setting.entity';
 import { StorageService } from '../storage/storage.service';
 import { TrackingGateway } from '../tracking/tracking.gateway';
 
-/** Événements qui déclenchent une notification (et un son LETO) dans l'app */
+/** Événements qui déclenchent une notification (et un son VITE) dans l'app */
 export const SOUND_EVENTS = {
   NEW_ORDER: 'Nouvelle course (livreurs)',
   ASSIGNED: 'Course affectée par l’entreprise',
@@ -24,11 +24,11 @@ export interface Sound {
   builtin: boolean;
 }
 
-/** Les 3 sons LETO intégrés à l'app */
+/** Les 3 sons VITE intégrés à l'app */
 const BUILTIN: Sound[] = [
-  { id: 'leto_course', name: 'LETO · Nouvelle course', url: null, builtin: true },
-  { id: 'leto_affectation', name: 'LETO · Affectation', url: null, builtin: true },
-  { id: 'leto_alerte', name: 'LETO · Alerte', url: null, builtin: true },
+  { id: 'leto_course', name: 'VITE · Nouvelle course', url: null, builtin: true },
+  { id: 'leto_affectation', name: 'VITE · Affectation', url: null, builtin: true },
+  { id: 'leto_alerte', name: 'VITE · Alerte', url: null, builtin: true },
 ];
 
 const DEFAULT_EVENTS: Record<SoundEvent, string> = {
